@@ -33,7 +33,7 @@ type
       ## Main thread only. Enter the backend event loop; this call blocks
       ## until the window terminates.
 
-    terminate*: proc(h: BackendHandle) {.closure.}
+    terminate*: proc(h: BackendHandle) {.closure, gcsafe.}
       ## Main thread only. Request that the backend event loop stop.
 
     dispatch*: proc(h: BackendHandle, fn: DispatchProc) {.closure, gcsafe.}
@@ -44,7 +44,8 @@ type
     setTitle*: proc(h: BackendHandle, title: string) {.closure.}
       ## Main thread only. Set the native window title.
 
-    setSize*: proc(h: BackendHandle, width, height: int, hints: WindowHints) {.closure.}
+    setSize*: proc(h: BackendHandle, width, height: int,
+        hints: WindowHints) {.closure.}
       ## Main thread only. Set the native window size and sizing hint.
 
     navigate*: proc(h: BackendHandle, url: string) {.closure.}
@@ -68,7 +69,8 @@ type
     unbind*: proc(h: BackendHandle, name: string) {.closure.}
       ## Main thread only. Remove a previously bound JavaScript function.
 
-    resolve*: proc(h: BackendHandle, id: string, ok: bool, jsonResult: string) {.closure.}
+    resolve*: proc(h: BackendHandle, id: string, ok: bool,
+        jsonResult: string) {.closure.}
       ## Main thread only. Complete a pending bound-call promise. Backends map
       ## `ok = true` to a success status and `ok = false` to a rejection
       ## status; for `webview_return`, that is status 0 or a non-zero status

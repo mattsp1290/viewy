@@ -47,6 +47,10 @@ proc assertUiThread(state: WvState) =
     doAssert getThreadId() == state.mainThreadId,
       "viewy backend operation must run on the UI thread"
 
+proc requireOpen(state: WvState; op: string) =
+  if state.closed or state.webview == nil:
+    raise newException(WvBackendError, op & " failed: backend is closed")
+
 proc toHint(hint: WindowHints): WebviewHint =
   case hint
   of whNone: wvHintNone
@@ -74,9 +78,15 @@ proc hasBinding(state: WvState; name: string): bool =
     if binding.name == name:
       return true
 
+proc `$`(s: ConstCString): string =
+  $cast[cstring](s)
+
 proc bindTrampoline(id, req: ConstCString; arg: pointer) {.cdecl, gcsafe.} =
   let binding = cast[Binding](arg)
-  binding.cb($cast[cstring](id), $cast[cstring](req))
+  try:
+    binding.cb($id, $req)
+  except CatchableError:
+    discard
 
 proc dispatchTrampoline(w: Webview; arg: pointer) {.cdecl, gcsafe.} =
   discard w
@@ -89,7 +99,10 @@ proc dispatchTrampoline(w: Webview; arg: pointer) {.cdecl, gcsafe.} =
     let slot = state.dispatches[slotIndex]
     state.dispatches[slotIndex] = nil
     if slot != nil:
-      slot.fn()
+      try:
+        slot.fn()
+      except CatchableError:
+        discard
 
 proc create(debug: bool): BackendHandle =
   let webview = webviewCreate(if debug: cint(1) else: cint(0), nil)
@@ -118,15 +131,18 @@ proc destroy(h: BackendHandle) =
 proc run(h: BackendHandle) =
   let state = h.toState
   state.assertUiThread
+  state.requireOpen("webview_run")
   expectOk("webview_run", webviewRun(state.webview))
 
-proc terminate(h: BackendHandle) =
+proc terminate(h: BackendHandle) {.gcsafe.} =
   let state = h.toState
   state.assertUiThread
+  state.requireOpen("webview_terminate")
   expectOk("webview_terminate", webviewTerminate(state.webview))
 
 proc dispatch(h: BackendHandle; fn: DispatchProc) {.gcsafe.} =
   let state = h.toState
+  state.requireOpen("webview_dispatch")
   let slotIndex = state.dispatches.len
   state.dispatches.add DispatchSlot(fn: fn)
 
@@ -137,8 +153,9 @@ proc dispatch(h: BackendHandle; fn: DispatchProc) {.gcsafe.} =
   payload[] = DispatchPayload(state: h, slot: slotIndex)
 
   # TODO(viewy-na6): replace this GC-rooted closure slot placeholder with the
-  # allocShared-backed typed handoff described in docs/threading.md. Passing a
-  # worker-created closure through ORC is unsafe even though this proc is gcsafe.
+  # allocShared-backed typed handoff described in docs/threading.md. This
+  # temporary path is only for main-thread-created/internal work; worker-created
+  # closures must not cross threads under ORC.
   let err = webviewDispatch(state.webview, dispatchTrampoline, payload)
   if err != wvOk:
     state.dispatches[slotIndex] = nil
@@ -148,37 +165,44 @@ proc dispatch(h: BackendHandle; fn: DispatchProc) {.gcsafe.} =
 proc setTitle(h: BackendHandle; title: string) =
   let state = h.toState
   state.assertUiThread
+  state.requireOpen("webview_set_title")
   expectOk("webview_set_title", webviewSetTitle(state.webview, title.cstring))
 
 proc setSize(h: BackendHandle; width, height: int; hints: WindowHints) =
   let state = h.toState
   state.assertUiThread
+  state.requireOpen("webview_set_size")
   expectOk("webview_set_size", webviewSetSize(state.webview, cint(width), cint(height),
     hints.toHint))
 
 proc navigate(h: BackendHandle; url: string) =
   let state = h.toState
   state.assertUiThread
+  state.requireOpen("webview_navigate")
   expectOk("webview_navigate", webviewNavigate(state.webview, url.cstring))
 
 proc setHtml(h: BackendHandle; html: string) =
   let state = h.toState
   state.assertUiThread
+  state.requireOpen("webview_set_html")
   expectOk("webview_set_html", webviewSetHtml(state.webview, html.cstring))
 
 proc eval(h: BackendHandle; js: string) =
   let state = h.toState
   state.assertUiThread
+  state.requireOpen("webview_eval")
   expectOk("webview_eval", webviewEval(state.webview, js.cstring))
 
 proc init(h: BackendHandle; js: string) =
   let state = h.toState
   state.assertUiThread
+  state.requireOpen("webview_init")
   expectOk("webview_init", webviewInit(state.webview, js.cstring))
 
 proc bindFn(h: BackendHandle; name: string; cb: BindCallback) =
   let state = h.toState
   state.assertUiThread
+  state.requireOpen("webview_bind")
   if state.hasBinding(name):
     raise newException(WvBackendError, "webview_bind failed: duplicate binding " & name)
 
@@ -191,12 +215,14 @@ proc bindFn(h: BackendHandle; name: string; cb: BindCallback) =
 proc unbind(h: BackendHandle; name: string) =
   let state = h.toState
   state.assertUiThread
+  state.requireOpen("webview_unbind")
   expectOk("webview_unbind", webviewUnbind(state.webview, name.cstring))
   removeBinding(state, name)
 
 proc resolve(h: BackendHandle; id: string; ok: bool; jsonResult: string) =
   let state = h.toState
   state.assertUiThread
+  state.requireOpen("webview_return")
   let status = if ok: cint(0) else: cint(1)
   expectOk("webview_return", webviewReturn(state.webview, id.cstring, status,
     jsonResult.cstring))
