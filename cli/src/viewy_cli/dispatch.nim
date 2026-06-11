@@ -3,6 +3,7 @@ import std/[os, parseopt, strutils]
 import viewy_cli/assets_gen
 import viewy_cli/build
 import viewy_cli/config
+import viewy_cli/dev
 import viewy_cli/init
 
 const CliVersion* = "0.1.0"
@@ -151,10 +152,17 @@ proc runCli*(args: openArray[string]): CliResult =
       result.error = e.msg
   of ckDev:
     try:
-      discard loadConfig(result.command.configPath,
+      let cfg = loadConfig(result.command.configPath,
         missingIsDefault = not result.command.configExplicit)
-      result.output = "viewy dev is not implemented yet"
+      let projectDir = if result.command.configExplicit:
+        parentDir(absolutePath(result.command.configPath))
+      else:
+        "."
+      runDev(cfg, projectDir)
     except ConfigError as e:
+      result.exitCode = 2
+      result.error = e.msg
+    except DevError as e:
       result.exitCode = 2
       result.error = e.msg
   of ckBuild:
