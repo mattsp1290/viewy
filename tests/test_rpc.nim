@@ -14,6 +14,9 @@ expose greet(name: string): string =
 expose add(a, b: int): int =
   a + b
 
+expose half(value: float): float =
+  value / 2
+
 expose invert(flag: bool): bool =
   not flag
 
@@ -37,6 +40,7 @@ proc binding(name: string): RpcBinding =
 
 doAssert binding("greet").call("1", "[\"world\"]").json.fromJson(string) == "hello world"
 doAssert binding("add").call("2", "[2,3]").json.fromJson(int) == 5
+doAssert binding("half").call("2f", "[7.0]").json.fromJson(float) == 3.5
 doAssert binding("invert").call("3", "[true]").json.fromJson(bool) == false
 doAssert binding("bump").call("4", "[[1,2]]").json.fromJson(seq[int]) == @[1, 2, 2]
 
