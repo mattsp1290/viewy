@@ -46,7 +46,9 @@ doAssert binding("bump").call("4", "[[1,2]]").json.fromJson(seq[int]) == @[1, 2,
 
 let touched = binding("touch").call("5", """[{"x": 4, "name": "oak"}]""")
 doAssert touched.ok
-doAssert touched.json.fromJson(Thing).x == 5
+let touchedThing = touched.json.fromJson(Thing)
+doAssert touchedThing.x == 5
+doAssert touchedThing.name == "oak"
 
 let arity = binding("add").call("6", "[1]")
 doAssert not arity.ok
@@ -69,6 +71,16 @@ doAssert metadata[0]["params"][0]["name"].getStr == "name"
 doAssert metadata[0]["params"][0]["typ"].getStr == "string"
 doAssert metadata[0]["returnType"].getStr == "string"
 doAssert metadata[0]["async"].getBool == false
+
+proc metadataFor(name: string): JsonNode =
+  for item in metadata:
+    if item["name"].getStr == name:
+      return item
+  raise newException(ValueError, "missing metadata: " & name)
+
+let halfMeta = metadataFor("half")
+doAssert halfMeta["params"][0]["typ"].getStr == "float"
+doAssert halfMeta["returnType"].getStr == "float"
 
 let malformed = binding("add").call("9", "{")
 doAssert not malformed.ok
