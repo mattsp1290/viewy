@@ -15,7 +15,9 @@ const
 
 {.passC: "-I" & webviewVendorDir & " -DWEBVIEW_STATIC=1".}
 
-when defined(linux):
+when defined(nimcheck):
+  discard
+elif defined(linux):
   import std/strutils
 
   proc pkgConfig(package: string): tuple[ok: bool; cflags, libs: string] {.compileTime.} =

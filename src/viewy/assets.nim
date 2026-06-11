@@ -1,4 +1,8 @@
-## Asset strategy (spec §4.5): single-file injection (default) and the
-## Served loopback mode.
-##
-## Stub: embed/serve implementations land in Phase 2.
+## Asset strategy knobs for the high-level app API.
+
+type
+  AssetMode* = enum
+    ## Load a self-contained HTML document directly with the backend.
+    assetsEmbedded
+    ## Navigate to a development server URL.
+    assetsDevServer

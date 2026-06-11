@@ -46,6 +46,12 @@ type
       ## Implementations must copy `js` into unmanaged storage before crossing
       ## threads; this is the backend-to-JS event handoff path.
 
+    dispatchResolve*: proc(h: BackendHandle; id: string; ok: bool;
+        jsonResult: string) {.closure, gcsafe.}
+      ## Schedule completion of a JavaScript binding Promise from the UI thread
+      ## or a worker thread. Implementations must copy string payloads into
+      ## unmanaged storage before crossing threads.
+
     setTitle*: proc(h: BackendHandle, title: string) {.closure.}
       ## Main thread only. Set the native window title.
 
