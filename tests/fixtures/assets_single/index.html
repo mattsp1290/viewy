@@ -1,0 +1,10 @@
+<!doctype html>
+<meta charset="utf-8">
+<main id="embedded-marker">embedded release fixture</main>
+<script>
+(async function () {
+  const marker = document.getElementById("embedded-marker");
+  const content = marker ? marker.textContent : "";
+  await window.report(content);
+})();
+</script>
