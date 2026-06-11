@@ -7,6 +7,9 @@ build/
 
 # Compiled test binaries (nimble test output)
 tests/tviewy
+cli/viewy
+cli/tests/test_config
+cli/tests/test_dispatch
 
 # Agent review artifacts
 .agents/reviews/
