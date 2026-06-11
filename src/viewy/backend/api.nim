@@ -1,5 +1,75 @@
-## Backend abstraction (spec §4.1): the minimal vtable-style interface
-## every webview backend must satisfy.
-##
-## Stub: the `Backend` object and `WindowHints` are defined in a
-## follow-up task (viewy-vnb).
+## Backend abstraction (spec section 4.1): the minimal vtable-style
+## interface every webview backend must satisfy.
+
+type
+  BackendHandle* = pointer
+    ## Opaque backend-owned native webview handle.
+
+  WindowHints* = enum
+    ## Window sizing hint passed through to the backend implementation.
+    whNone = 0
+    whMin = 1
+    whMax = 2
+    whFixed = 3
+
+  DispatchProc* = proc() {.closure, gcsafe.}
+    ## Work item scheduled onto the backend UI thread. Captured state must be
+    ## safe to hand off under ORC when dispatching across threads.
+
+  BindCallback* = proc(id, jsonArgs: string) {.closure, gcsafe.}
+    ## UI-thread callback invoked by the backend with a request id and raw JSON
+    ## args.
+
+  Backend* = object
+    create*: proc(debug: bool): BackendHandle {.closure.}
+      ## Main thread only. Create and return a backend handle; `debug`
+      ## enables backend-specific developer tooling when available.
+
+    destroy*: proc(h: BackendHandle) {.closure.}
+      ## Main thread only. Destroy a handle after `run` has returned or the
+      ## backend has otherwise been terminated.
+
+    run*: proc(h: BackendHandle) {.closure.}
+      ## Main thread only. Enter the backend event loop; this call blocks
+      ## until the window terminates.
+
+    terminate*: proc(h: BackendHandle) {.closure.}
+      ## Main thread only. Request that the backend event loop stop.
+
+    dispatch*: proc(h: BackendHandle, fn: DispatchProc) {.closure, gcsafe.}
+      ## Thread-safe. Schedule `fn` to run on the backend UI thread. This is
+      ## the only backend operation that may be called away from the main
+      ## thread.
+
+    setTitle*: proc(h: BackendHandle, title: string) {.closure.}
+      ## Main thread only. Set the native window title.
+
+    setSize*: proc(h: BackendHandle, width, height: int, hints: WindowHints) {.closure.}
+      ## Main thread only. Set the native window size and sizing hint.
+
+    navigate*: proc(h: BackendHandle, url: string) {.closure.}
+      ## Main thread only. Navigate the webview to a URL, used for dev-server
+      ## and served-asset modes.
+
+    setHtml*: proc(h: BackendHandle, html: string) {.closure.}
+      ## Main thread only. Load an HTML string directly into the webview.
+
+    eval*: proc(h: BackendHandle, js: string) {.closure.}
+      ## Main thread only. Evaluate JavaScript in the active page context.
+
+    init*: proc(h: BackendHandle, js: string) {.closure.}
+      ## Main thread only. Register JavaScript that the backend injects before
+      ## page scripts run.
+
+    bindFn*: proc(h: BackendHandle, name: string, cb: BindCallback) {.closure.}
+      ## Main thread only. Bind a JavaScript-exposed function name to a Nim
+      ## callback that receives the webview request id and raw JSON args.
+
+    unbind*: proc(h: BackendHandle, name: string) {.closure.}
+      ## Main thread only. Remove a previously bound JavaScript function.
+
+    resolve*: proc(h: BackendHandle, id: string, ok: bool, jsonResult: string) {.closure.}
+      ## Main thread only. Complete a pending bound-call promise. Backends map
+      ## `ok = true` to a success status and `ok = false` to a rejection
+      ## status; for `webview_return`, that is status 0 or a non-zero status
+      ## such as 1 respectively.
