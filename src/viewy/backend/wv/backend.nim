@@ -109,13 +109,17 @@ proc hasBinding(state: WvState; name: string): bool =
     if binding.name == name:
       return true
 
-proc `$`(s: ConstCString): string =
-  $cast[cstring](s)
+proc toString(s: ConstCString): string =
+  let c = cast[cstring](s)
+  if c == nil:
+    ""
+  else:
+    $c
 
 proc bindTrampoline(id, req: ConstCString; arg: pointer) {.cdecl, gcsafe.} =
   let binding = cast[Binding](arg)
   try:
-    binding.cb($id, $req)
+    binding.cb(id.toString(), req.toString())
   except CatchableError:
     discard
 

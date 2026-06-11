@@ -90,13 +90,71 @@ jobs:
           subprocess.run([exe], check=True, timeout=120)
           PY
 
+      - name: Build async RPC windowed test
+        run: nim c --hints:off --mm:orc --threads:on -o:build/test_async_rpc tests/test_async_rpc.nim
+
+      - name: Run async RPC windowed test (xvfb, 120s watchdog)
+        if: runner.os == 'Linux'
+        run: |
+          python - <<'PY'
+          import subprocess
+
+          subprocess.run(
+              ["xvfb-run", "-a", "build/test_async_rpc"],
+              check=True,
+              timeout=120,
+          )
+          PY
+
+      - name: Run async RPC windowed test (120s watchdog)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+
+          exe = "build/test_async_rpc.exe" if os.name == "nt" else "build/test_async_rpc"
+          subprocess.run([exe], check=True, timeout=120)
+          PY
+
+      - name: Build handoff windowed test
+        run: nim c --hints:off --mm:orc --threads:on -o:build/test_wv_handoff tests/test_wv_handoff.nim
+
+      - name: Run handoff windowed test (xvfb, 120s watchdog)
+        if: runner.os == 'Linux'
+        run: |
+          python - <<'PY'
+          import subprocess
+
+          subprocess.run(
+              ["xvfb-run", "-a", "build/test_wv_handoff"],
+              check=True,
+              timeout=120,
+          )
+          PY
+
+      - name: Run handoff windowed test (120s watchdog)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+
+          exe = "build/test_wv_handoff.exe" if os.name == "nt" else "build/test_wv_handoff"
+          subprocess.run([exe], check=True, timeout=120)
+          PY
+
       - name: Run tests (xvfb)
         if: runner.os == 'Linux'
-        run: xvfb-run -a nimble test -y
+        run: VIEWY_SKIP_WINDOWED=1 xvfb-run -a nimble test -y
 
       - name: Run tests
         if: runner.os != 'Linux'
         run: nimble test -y
+        env:
+          VIEWY_SKIP_WINDOWED: "1"
 
       # Wired but not yet gating (spec §9): surfaces drift without failing CI.
       - name: nimpretty (non-gating)
