@@ -1,24 +1,36 @@
 ## Typed RPC layer (spec section 4.4): the `expose` macro and JSON envelope
 ## codec.
 
-import std/macros
+import std/[asyncdispatch, macros]
 
 import jsony
 
 type
+  RpcResolver* = proc(id: string; ok: bool; json: string) {.closure.}
+    ## Completes a deferred RPC call. App wiring should pass a resolver that
+    ## reaches the backend through its thread-safe dispatch/resolve path.
+
   RpcWrapper* = proc(id, jsonArgs: string): RpcReply {.closure, gcsafe.}
-    ## Invoked by app wiring when a webview binding calls into Nim.
+    ## Invoked by tests and sync-only wiring when a webview binding calls into
+    ## Nim. Async wrappers return a structured error here; use
+    ## `callWithResolver` for bindings whose metadata has `async = true`.
+
+  RpcAsyncWrapper* = proc(id, jsonArgs: string;
+      resolve: RpcResolver): RpcReply {.closure, gcsafe.}
+    ## Invoked by app wiring when a webview binding may complete later.
 
   RpcReply* = object
-    ## Result of a synchronous RPC wrapper. Async support will reuse `id` and
-    ## resolve later through backend dispatch.
+    ## Immediate wrapper result. Async wrappers return `pending = true` after
+    ## scheduling completion through the supplied resolver.
     ok*: bool
+    pending*: bool
     json*: string
 
   RpcBinding* = object
     ## Runtime binding registered by `expose`.
     name*: string
     call*: RpcWrapper
+    callWithResolver*: RpcAsyncWrapper
 
   RpcParamMetadata* = object
     ## Parameter metadata emitted for future tooling.
@@ -53,6 +65,32 @@ proc exceptionReply(error: ref Exception): RpcReply =
     json: rpcErrorJson($error.name, $error.name),
   )
 
+proc missingResolverReply(): RpcReply =
+  RpcReply(
+    ok: false,
+    json: rpcErrorJson("async RPC wrapper requires a resolver", "ValueError"),
+  )
+
+proc completeFuture[T](id: string; fut: Future[T];
+    resolver: RpcResolver) {.async.} =
+  try:
+    let rpcValue = await fut
+    {.cast(gcsafe).}:
+      resolver(id, true, rpcValue.toJson())
+  except CatchableError as error:
+    {.cast(gcsafe).}:
+      resolver(id, false, rpcErrorJson($error.name, $error.name))
+
+proc completeVoidFuture(id: string; fut: Future[void];
+    resolver: RpcResolver) {.async.} =
+  try:
+    await fut
+    {.cast(gcsafe).}:
+      resolver(id, true, "")
+  except CatchableError as error:
+    {.cast(gcsafe).}:
+      resolver(id, false, rpcErrorJson($error.name, $error.name))
+
 proc rawArgs(jsonArgs: string; expected: int): seq[RawJson] =
   result = jsonArgs.fromJson(seq[RawJson])
   if result.len != expected:
@@ -60,12 +98,21 @@ proc rawArgs(jsonArgs: string; expected: int): seq[RawJson] =
 
 proc registerBinding*(binding: RpcBinding; metadata: RpcBindingMetadata) =
   ## Register one exposed proc wrapper and its metadata.
+  var normalized = binding
+  if normalized.callWithResolver == nil:
+    let syncCall = normalized.call
+    normalized.callWithResolver =
+      proc(id, jsonArgs: string; resolver: RpcResolver): RpcReply {.gcsafe.} =
+        if resolver == nil:
+          discard
+        syncCall(id, jsonArgs)
+
   for i in 0 ..< registry.len:
-    if registry[i].name == binding.name:
-      registry[i] = binding
+    if registry[i].name == normalized.name:
+      registry[i] = normalized
       metadataRegistry[i] = metadata
       return
-  registry.add binding
+  registry.add normalized
   metadataRegistry.add metadata
 
 proc bindings*(): lent seq[RpcBinding] =
@@ -95,7 +142,7 @@ macro viewyDumpBinding(metadata: static[string]): untyped =
   result = newStmtList()
 
 proc metadataNode(name: string; params: seq[(string, string)];
-    ret: string): NimNode =
+    ret: string; isAsync: bool): NimNode =
   result = nnkObjConstr.newTree(ident("RpcBindingMetadata"))
   result.add nnkExprColonExpr.newTree(ident("name"), newLit(name))
 
@@ -109,14 +156,29 @@ proc metadataNode(name: string; params: seq[(string, string)];
   let paramsSeq = nnkPrefix.newTree(ident("@"), nnkBracket.newTree(paramItems))
   result.add nnkExprColonExpr.newTree(ident("params"), paramsSeq)
   result.add nnkExprColonExpr.newTree(ident("returnType"), newLit(ret))
-  result.add nnkExprColonExpr.newTree(ident("async"), ident("false"))
+  result.add nnkExprColonExpr.newTree(ident("async"), newLit(isAsync))
 
 proc metadataJson(name: string; params: seq[(string, string)];
-    ret: string): string =
-  var meta = RpcBindingMetadata(name: name, returnType: ret, async: false)
+    ret: string; isAsync: bool): string =
+  var meta = RpcBindingMetadata(name: name, returnType: ret, async: isAsync)
   for param in params:
     meta.params.add RpcParamMetadata(name: param[0], typ: param[1])
   meta.toJson()
+
+proc futureValueType(ret: NimNode): tuple[ok: bool; value: NimNode] =
+  if ret.kind == nnkBracketExpr and ret.len == 2:
+    let head = ret[0]
+    let isFuture =
+      if head.kind in {nnkIdent, nnkSym}:
+        head.repr == "Future"
+      elif head.kind == nnkDotExpr and head.len > 0:
+        head[^1].repr == "Future"
+      else:
+        false
+    if not isFuture:
+      return (false, ret)
+    return (true, ret[1])
+  (false, ret)
 
 proc parseExposeBody(body: NimNode): tuple[ret, body: NimNode] =
   if body.kind == nnkStmtList and body.len == 1 and body[0].kind == nnkAsgn:
@@ -170,58 +232,110 @@ macro expose*(sig: untyped; body: untyped): untyped =
   let procNameStr = $procName
   let parsedBody = parseExposeBody(body)
   let ret = parsedBody.ret
-  let retName = if ret.kind == nnkIdent and $ret ==
-      "void": "void" else: ret.repr
+  let futureType = futureValueType(ret)
+  let isAsync = futureType.ok
+  let exposedRet = futureType.value
+  let retName = if exposedRet.kind == nnkIdent and $exposedRet ==
+      "void": "void" else: exposedRet.repr
   let def = procDefNode(procName, ret, parsedBody.body, parsed.params)
   let wrapperName = genSym(nskProc, procNameStr & "ViewyWrapper")
+  let wrapperWithResolverName = genSym(nskProc,
+      procNameStr & "ViewyWrapperWithResolver")
   let registerName = genSym(nskProc, procNameStr & "ViewyRegister")
-  let argsName = genSym(nskLet, "args")
-  let idName = genSym(nskParam, "id")
-  let jsonArgsName = genSym(nskParam, "jsonArgs")
+  let syncArgsName = genSym(nskLet, "args")
+  let asyncArgsName = genSym(nskLet, "args")
+  let syncIdName = genSym(nskParam, "id")
+  let syncJsonArgsName = genSym(nskParam, "jsonArgs")
+  let asyncIdName = genSym(nskParam, "id")
+  let asyncJsonArgsName = genSym(nskParam, "jsonArgs")
+  let resolveName = genSym(nskParam, "resolve")
 
   var paramMeta: seq[(string, string)] = @[]
-  var parseStmts = newStmtList()
-  var callArgs = newSeq[NimNode]()
+  var syncParseStmts = newStmtList()
+  var asyncParseStmts = newStmtList()
+  var syncCallArgs = newSeq[NimNode]()
+  var asyncCallArgs = newSeq[NimNode]()
 
   for argIndex, param in parsed.params:
-    let localName = genSym(nskLet, $param[0])
+    let syncLocalName = genSym(nskLet, $param[0])
+    let asyncLocalName = genSym(nskLet, $param[0])
     let typ = param[1]
     let indexLit = newLit(argIndex)
     paramMeta.add(($param[0], typ.repr))
-    parseStmts.add quote do:
-      let `localName` = string(`argsName`[`indexLit`]).fromJson(`typ`)
-    callArgs.add localName
+    syncParseStmts.add quote do:
+      let `syncLocalName` = string(`syncArgsName`[`indexLit`]).fromJson(`typ`)
+    asyncParseStmts.add quote do:
+      let `asyncLocalName` = string(`asyncArgsName`[`indexLit`]).fromJson(`typ`)
+    syncCallArgs.add syncLocalName
+    asyncCallArgs.add asyncLocalName
 
-  let metadataExpr = metadataNode(procNameStr, paramMeta, retName)
-  let metadataJsonLiteral = metadataJson(procNameStr, paramMeta, retName)
-  let callExpr = newCall(procName, callArgs)
+  let metadataExpr = metadataNode(procNameStr, paramMeta, retName, isAsync)
+  let metadataJsonLiteral = metadataJson(procNameStr, paramMeta, retName, isAsync)
+  let syncCallExpr = newCall(procName, syncCallArgs)
+  let asyncCallExpr = newCall(procName, asyncCallArgs)
   let argCountLit = newLit(parsed.params.len)
 
-  let successExpr =
-    if retName == "void":
+  let syncSuccessExpr =
+    if isAsync:
       quote do:
-        `callExpr`
+        missingResolverReply()
+    elif retName == "void":
+      quote do:
+        `syncCallExpr`
         RpcReply(ok: true, json: "")
     else:
       quote do:
-        let rpcValue = `callExpr`
+        let rpcValue = `syncCallExpr`
         RpcReply(ok: true, json: rpcValue.toJson())
+
+  let asyncSuccessExpr =
+    if not isAsync:
+      quote do:
+        `wrapperName`(`asyncIdName`, `asyncJsonArgsName`)
+    elif retName == "void":
+      let futureName = genSym(nskLet, "rpcFuture")
+      quote do:
+        if `resolveName` == nil:
+          missingResolverReply()
+        else:
+          let `futureName` = `asyncCallExpr`
+          asyncCheck completeVoidFuture(`asyncIdName`, `futureName`, `resolveName`)
+          RpcReply(ok: true, pending: true, json: "")
+    else:
+      let futureName = genSym(nskLet, "rpcFuture")
+      quote do:
+        if `resolveName` == nil:
+          missingResolverReply()
+        else:
+          let `futureName` = `asyncCallExpr`
+          asyncCheck completeFuture(`asyncIdName`, `futureName`, `resolveName`)
+          RpcReply(ok: true, pending: true, json: "")
 
   result = quote do:
     `def`
 
-    proc `wrapperName`(`idName`, `jsonArgsName`: string): RpcReply {.gcsafe.} =
-      discard `idName`
+    proc `wrapperName`(`syncIdName`, `syncJsonArgsName`: string): RpcReply {.gcsafe.} =
+      discard `syncIdName`
       try:
-        let `argsName` = rawArgs(`jsonArgsName`, `argCountLit`)
-        `parseStmts`
-        `successExpr`
+        let `syncArgsName` = rawArgs(`syncJsonArgsName`, `argCountLit`)
+        `syncParseStmts`
+        `syncSuccessExpr`
+      except CatchableError as error:
+        exceptionReply(error)
+
+    proc `wrapperWithResolverName`(`asyncIdName`, `asyncJsonArgsName`: string;
+        `resolveName`: RpcResolver): RpcReply {.gcsafe.} =
+      try:
+        let `asyncArgsName` = rawArgs(`asyncJsonArgsName`, `argCountLit`)
+        `asyncParseStmts`
+        `asyncSuccessExpr`
       except CatchableError as error:
         exceptionReply(error)
 
     proc `registerName`() {.used.} =
       registerBinding(
-        RpcBinding(name: `procNameStr`, call: `wrapperName`),
+        RpcBinding(name: `procNameStr`, call: `wrapperName`,
+            callWithResolver: `wrapperWithResolverName`),
         `metadataExpr`,
       )
 

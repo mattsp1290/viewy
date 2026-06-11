@@ -1,4 +1,4 @@
-import std/[json, strutils]
+import std/[asyncdispatch, json, strutils]
 
 import jsony
 import viewy/rpc
@@ -31,6 +31,29 @@ proc raiseSecret(): string =
 
 expose fail(): string =
   raiseSecret()
+
+proc delayedValue(value: int): Future[int] {.async.} =
+  await sleepAsync(1)
+  value
+
+proc delayedFailure(): Future[string] {.async.} =
+  await sleepAsync(1)
+  raise newException(ValueError, "async secret")
+
+proc delayedVoid(): Future[void] {.async.} =
+  await sleepAsync(1)
+
+expose asyncAdd(a, b: int): Future[int] =
+  delayedValue(a + b)
+
+expose asyncQualified(value: int): asyncdispatch.Future[int] =
+  delayedValue(value)
+
+expose asyncVoid(): Future[void] =
+  delayedVoid()
+
+expose asyncFail(): Future[string] =
+  delayedFailure()
 
 proc binding(name: string): RpcBinding =
   for item in bindings():
@@ -82,6 +105,18 @@ let halfMeta = metadataFor("half")
 doAssert halfMeta["params"][0]["typ"].getStr == "float"
 doAssert halfMeta["returnType"].getStr == "float"
 
+let asyncAddMeta = metadataFor("asyncAdd")
+doAssert asyncAddMeta["returnType"].getStr == "int"
+doAssert asyncAddMeta["async"].getBool == true
+
+let asyncQualifiedMeta = metadataFor("asyncQualified")
+doAssert asyncQualifiedMeta["returnType"].getStr == "int"
+doAssert asyncQualifiedMeta["async"].getBool == true
+
+let asyncVoidMeta = metadataFor("asyncVoid")
+doAssert asyncVoidMeta["returnType"].getStr == "void"
+doAssert asyncVoidMeta["async"].getBool == true
+
 let malformed = binding("add").call("9", "{")
 doAssert not malformed.ok
 doAssert parseJson(malformed.json)["error"]["type"].getStr.len > 0
@@ -89,6 +124,67 @@ doAssert parseJson(malformed.json)["error"]["type"].getStr.len > 0
 let wrongType = binding("add").call("10", """["x", 1]""")
 doAssert not wrongType.ok
 doAssert parseJson(wrongType.json)["error"]["type"].getStr.len > 0
+
+var
+  resolved = false
+  resolvedId = ""
+  resolvedOk = false
+  resolvedJson = ""
+
+proc captureResolve(id: string; ok: bool; json: string) =
+  resolved = true
+  resolvedId = id
+  resolvedOk = ok
+  resolvedJson = json
+
+let asyncImmediate = binding("asyncAdd").callWithResolver("11", "[2,5]",
+    captureResolve)
+doAssert asyncImmediate.ok
+doAssert asyncImmediate.pending
+while not resolved:
+  poll(10)
+doAssert resolvedId == "11"
+doAssert resolvedOk
+doAssert resolvedJson.fromJson(int) == 7
+
+resolved = false
+let asyncQualifiedImmediate = binding("asyncQualified").callWithResolver("11q",
+    "[9]", captureResolve)
+doAssert asyncQualifiedImmediate.ok
+doAssert asyncQualifiedImmediate.pending
+while not resolved:
+  poll(10)
+doAssert resolvedId == "11q"
+doAssert resolvedOk
+doAssert resolvedJson.fromJson(int) == 9
+
+resolved = false
+let asyncVoidImmediate = binding("asyncVoid").callWithResolver("11v", "[]",
+    captureResolve)
+doAssert asyncVoidImmediate.ok
+doAssert asyncVoidImmediate.pending
+while not resolved:
+  poll(10)
+doAssert resolvedId == "11v"
+doAssert resolvedOk
+doAssert resolvedJson == ""
+
+resolved = false
+let asyncFailedImmediate = binding("asyncFail").callWithResolver("12", "[]",
+    captureResolve)
+doAssert asyncFailedImmediate.ok
+doAssert asyncFailedImmediate.pending
+while not resolved:
+  poll(10)
+doAssert resolvedId == "12"
+doAssert not resolvedOk
+let asyncFailedJson = parseJson(resolvedJson)
+doAssert asyncFailedJson["error"]["type"].getStr == "ValueError"
+doAssert asyncFailedJson["error"]["message"].getStr == "ValueError"
+
+let missingResolver = binding("asyncAdd").call("13", "[1,2]")
+doAssert not missingResolver.ok
+doAssert parseJson(missingResolver.json)["error"]["type"].getStr == "ValueError"
 
 proc firstWrapper(id, jsonArgs: string): RpcReply {.gcsafe.} =
   discard id

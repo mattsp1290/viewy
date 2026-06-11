@@ -117,6 +117,25 @@ Instead:
 The status mapping is fixed by the backend API: `ok = true` maps to status `0`,
 and `ok = false` maps to status `1`.
 
+## Async RPC integration
+
+`expose` supports procs returning `std/asyncdispatch.Future[T]`. The generated
+wrapper starts the future, returns an immediate `RpcReply` with `pending = true`,
+and completes the webview promise later through the resolver supplied by app
+wiring.
+
+The resolver is the integration boundary. For the webview backend it must route
+through `dispatchResolve`, not direct `resolve`, because an `asyncdispatch`
+continuation may run outside the UI-thread-only backend call path. The resolver
+copies the bind request id and JSON result into the unmanaged handoff described
+above, then `webview_return` runs on the UI thread.
+
+The application event loop must also pump `std/asyncdispatch` while the native
+webview loop is running. Until the high-level `run()` API owns that loop
+integration, tests can drive async RPC wrappers by calling `poll()`; production
+app wiring should arrange an equivalent pump around the blocking backend
+`run()`.
+
 ## Ownership rules
 
 - The caller owns all Nim-managed strings and values before calling the handoff
