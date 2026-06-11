@@ -4,6 +4,11 @@ import viewy_cli/init
 
 let templateRoot = getCurrentDir() / "templates"
 
+proc fileCount(root: string): int =
+  for path in walkDirRec(root):
+    if fileExists(path):
+      inc result
+
 suite "viewy init":
   test "copies and stamps vanilla template":
     let dir = createTempDir("viewy-init", "")
@@ -12,6 +17,7 @@ suite "viewy init":
       let appDir = dir / "demo-app"
       check output.contains("Created demo-app")
       check fileExists(appDir / "viewy.json")
+      check fileExists(appDir / ".gitignore")
       check fileExists(appDir / "demo_app.nimble")
       check fileExists(appDir / "package.json")
       check fileExists(appDir / "src" / "main.nim")
@@ -29,7 +35,7 @@ suite "viewy init":
         check execShellCmd("npm ci") == 0
         check execShellCmd("npm run build") == 0
         check fileExists(appDir / "dist" / "index.html")
-        check execShellCmd("test $(find dist -type f | wc -l | tr -d ' ') = 1") == 0
+        check fileCount(appDir / "dist") == 1
       finally:
         setCurrentDir(old)
     finally:
@@ -52,3 +58,18 @@ suite "viewy init":
   test "rejects invalid project names":
     expect InitError:
       discard initProject("bad/name", templateRoot = templateRoot)
+
+  test "compiled cli can init outside cli with explicit template root":
+    let dir = createTempDir("viewy-init-cli", "")
+    let old = getCurrentDir()
+    try:
+      check execShellCmd("nimble build -y") == 0
+      setCurrentDir(dir)
+      putEnv("VIEWY_TEMPLATE_ROOT", templateRoot)
+      check execShellCmd(old / "viewy init cli-app --template vanilla") == 0
+      check fileExists(dir / "cli-app" / "viewy.json")
+      check fileExists(dir / "cli-app" / "cli_app.nimble")
+    finally:
+      delEnv("VIEWY_TEMPLATE_ROOT")
+      setCurrentDir(old)
+      removeDir(dir)

@@ -51,6 +51,24 @@ proc copyTemplate(templateDir, destDir: string) =
     createDir(parentDir(target))
     copyFile(path, target)
 
+proc defaultTemplateRoot(): string =
+  if existsEnv("VIEWY_TEMPLATE_ROOT"):
+    let fromEnv = getEnv("VIEWY_TEMPLATE_ROOT")
+    if dirExists(fromEnv):
+      return fromEnv
+    raise initError("VIEWY_TEMPLATE_ROOT does not exist: " & fromEnv)
+
+  let appDir = getAppDir()
+  for candidate in [
+    appDir / "templates",
+    parentDir(appDir) / "share" / "viewy" / "templates",
+    parentDir(parentDir(parentDir(currentSourcePath()))) / "templates"
+  ]:
+    if dirExists(candidate):
+      return candidate
+
+  raise initError("template assets not found; reinstall viewy or set VIEWY_TEMPLATE_ROOT")
+
 proc initProject*(name: string; templateName = "vanilla"; destRoot = ".";
     templateRoot = ""): string =
   if templateName != "vanilla":
@@ -58,33 +76,46 @@ proc initProject*(name: string; templateName = "vanilla"; destRoot = ".";
   if not isProjectName(name):
     raise initError("project name must use only letters, numbers, '_' or '-'")
 
+  let templates = if templateRoot.len > 0:
+    templateRoot
+  else:
+    defaultTemplateRoot()
+  let source = templates / templateName
+  if not dirExists(source):
+    raise initError("template not found: " & templateName)
+
   let destDir = destRoot / name
   if dirExists(destDir):
     for _ in walkDir(destDir):
       raise initError(destDir & " already exists and is not empty")
   elif fileExists(destDir):
     raise initError(destDir & " already exists and is not a directory")
-  else:
-    createDir(destDir)
 
-  let templates = if templateRoot.len > 0:
-    templateRoot
-  else:
-    parentDir(parentDir(parentDir(currentSourcePath()))) / "templates"
-  let source = templates / templateName
-  if not dirExists(source):
-    raise initError("template not found: " & templateName)
+  createDir(destRoot)
+  let staging = destRoot / ("." & name & ".viewy-init-tmp")
+  if dirExists(staging):
+    removeDir(staging)
+  elif fileExists(staging):
+    removeFile(staging)
 
-  copyTemplate(source, destDir)
+  try:
+    createDir(staging)
+    copyTemplate(source, staging)
 
-  let oldNimble = destDir / "viewy_app.nimble"
-  let newNimble = destDir / (packageName(name) & ".nimble")
-  if fileExists(oldNimble):
-    moveFile(oldNimble, newNimble)
+    let oldNimble = staging / "viewy_app.nimble"
+    let newNimble = staging / (packageName(name) & ".nimble")
+    if fileExists(oldNimble):
+      moveFile(oldNimble, newNimble)
 
-  for path in walkDirRec(destDir):
-    if fileExists(path):
-      stampFile(path, name)
+    for path in walkDirRec(staging):
+      if fileExists(path):
+        stampFile(path, name)
+
+    moveDir(staging, destDir)
+  except CatchableError:
+    if dirExists(staging):
+      removeDir(staging)
+    raise
 
   result = "Created " & name & "\n\nNext steps:\n  cd " & name &
     "\n  npm ci\n  npm run build\n  nim c --mm:orc --threads:on src/main.nim"
