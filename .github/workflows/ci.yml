@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
@@ -55,6 +56,37 @@ jobs:
 
       - name: nim check library root
         run: nim check --hints:off src/viewy.nim
+
+      - name: Create build directory
+        run: python -c "import os; os.makedirs('build', exist_ok=True)"
+
+      - name: Build window smoke
+        run: nim c --hints:off --mm:orc --threads:on -o:build/window_smoke tests/spike/window_smoke.nim
+
+      - name: Run window smoke (xvfb, 120s watchdog)
+        if: runner.os == 'Linux'
+        run: |
+          python - <<'PY'
+          import subprocess
+
+          subprocess.run(
+              ["xvfb-run", "-a", "build/window_smoke"],
+              check=True,
+              timeout=120,
+          )
+          PY
+
+      - name: Run window smoke (120s watchdog)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+
+          exe = "build/window_smoke.exe" if os.name == "nt" else "build/window_smoke"
+          subprocess.run([exe], check=True, timeout=120)
+          PY
 
       - name: Run tests (xvfb)
         if: runner.os == 'Linux'
