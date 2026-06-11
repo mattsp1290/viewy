@@ -5,7 +5,7 @@
   "height": 768,
   "resizable": true,
   "assets": "single",
-  "devUrl": "http://localhost:5173",
+  "devUrl": "http://127.0.0.1:5173",
   "frontendDir": ".",
   "nimMain": "src/main.nim"
 }

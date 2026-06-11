@@ -13,7 +13,7 @@ the network.
 ## Frontend
 
 ```bash
-npm install
+npm ci
 npm run dev
 npm run build
 ```
@@ -27,4 +27,11 @@ single-file build.
 
 ```bash
 nim c --mm:orc --threads:on src/main.nim
+```
+
+When developing this template from a local viewy checkout before the package
+is published, compile with an explicit library path:
+
+```bash
+nim c --path:/path/to/viewy/src --mm:orc --threads:on src/main.nim
 ```
