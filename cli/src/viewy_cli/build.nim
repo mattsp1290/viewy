@@ -35,7 +35,7 @@ proc nimbleViewyLibPath(): string =
     if result.len > 0:
       return
 
-proc viewyLibPath(): string =
+proc viewyLibPath*(): string =
   if existsEnv("VIEWY_LIB_SRC"):
     let fromEnv = getEnv("VIEWY_LIB_SRC")
     if dirExists(fromEnv):
