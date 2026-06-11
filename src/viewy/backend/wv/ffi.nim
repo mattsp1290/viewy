@@ -3,7 +3,7 @@
 ## Keep this module narrow: it intentionally wraps only the v1 surface used by
 ## viewy and does not expose webview_get_native_handle or webview_version.
 
-{.passC: "-Ivendor/webview".}
+import ./build
 
 type
   Webview* = pointer
