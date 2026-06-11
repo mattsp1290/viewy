@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.vite/
+build/
+/src/main
+*.exe
+*.dll
+*.so
+*.dylib
+nimcache/
