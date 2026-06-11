@@ -17,7 +17,8 @@ This document refines the spec section 4.6 rule:
 Use a small backend-local handoff layer built on C-heap owned payloads:
 
 1. The caller serializes the operation into plain bytes on its current thread.
-2. The handoff layer allocates an unmanaged payload with `allocShared`.
+2. The handoff layer allocates the `HandoffPayload` object and each non-empty
+   byte buffer with `allocShared`.
 3. The payload is passed to `webview_dispatch` with a top-level static callback.
 4. The UI-thread callback copies bytes into UI-thread Nim strings, performs the
    backend operation, and releases the unmanaged payload with `deallocShared`.
@@ -35,7 +36,9 @@ RPC promise resolution.
 The implementation bead should place this in `src/viewy/backend/wv/handoff.nim`
 or the dispatch section of `src/viewy/backend/wv/backend.nim`.
 
-The unmanaged payload should be a tiny tagged object:
+The unmanaged payload should be a tiny tagged object. Allocate
+`HandoffPayload` itself with `allocShared`; `webview_dispatch` receives only
+that unmanaged pointer.
 
 ```nim
 type
@@ -77,11 +80,12 @@ strings on the UI thread, runs the requested operation, then frees every
 
 `emit(event, payload)` remains callable from worker threads.
 
-The caller serializes `payload` with jsony on the calling thread and constructs
-the final JavaScript source for:
+The caller serializes `payload` with jsony on the calling thread, encodes
+`event` as a JSON string literal, and constructs the final JavaScript source
+for:
 
 ```js
-window.__viewy.emit(eventName, payloadJson)
+window.__viewy.emit("eventName", payloadJson)
 ```
 
 The final JS source is copied into `SharedBytes` and dispatched as `hkEval`.
@@ -116,8 +120,9 @@ and `ok = false` maps to status `1`.
 - The handoff helper copies all bytes into `allocShared` storage before calling
   `webview_dispatch`.
 - If allocation fails, the helper raises or returns an error before dispatching.
-- If `webview_dispatch` rejects the payload synchronously, the helper frees the
-  payload before returning.
+- If `webview_dispatch` returns a non-success status synchronously, according to
+  the FFI wrapper's webview error convention, the helper frees the payload
+  before returning.
 - If `webview_dispatch` accepts the payload, the UI-thread callback owns it and
   must free it after running or dropping the operation.
 - The UI-thread callback must copy payload bytes into local Nim strings before
@@ -136,24 +141,25 @@ The webview backend should store the UI thread id at `create` and keep the debug
 assertions required by spec section 4.6: every backend operation except
 `dispatch` must assert it is running on that UI thread.
 
-The backend should also track whether it is still accepting cross-thread
-handoffs. Once termination starts, new `emit` and deferred `resolve` payloads
+The backend should track accepting-handoffs separately from native-handle
+lifetime. Once termination starts, new `emit` and deferred `resolve` payloads
 are best-effort:
 
 - if the backend is no longer accepting handoffs, drop the payload before calling
   `webview_dispatch`;
 - if `webview_dispatch` returns an error, free and drop the payload;
 - if a payload reaches the UI thread after shutdown has started, free it and
-  skip the native operation unless the operation is the termination request
-  itself.
+  skip the native operation. If a future termination handoff is added, document
+  its separate shutdown exception beside the new handoff kind.
 
 Delivery after termination is not guaranteed. The guarantee is memory safety:
 payload ownership is explicit, and every accepted callback path has a single
 owner responsible for freeing unmanaged storage.
 
-`destroy` remains main-thread only and must run after `run` exits. It must mark
-the backend as closed before releasing the native handle so later dispatch
-attempts fail before touching a destroyed webview handle.
+`destroy` remains main-thread only and must run after `run` exits. It must stop
+accepting new handoffs before releasing the native handle so later dispatch
+attempts fail before touching a destroyed webview handle. Already accepted
+UI-thread callbacks still guard native operations against a destroyed handle.
 
 ## Implementation notes
 
