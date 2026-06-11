@@ -15,6 +15,7 @@ type
 
   Command* = object
     configPath*: string
+    configExplicit*: bool
     case kind*: CommandKind
     of ckInit:
       name*: string
@@ -55,7 +56,9 @@ proc parseCommand*(args: openArray[string]): Command =
   var parser = initOptParser(@args, longNoVal = @["help", "version", "release"])
   var positionals: seq[string]
   var templateName = "vanilla"
+  var templateExplicit = false
   var configPath = "viewy.json"
+  var configExplicit = false
   var release = false
 
   for kind, key, val in parser.getopt():
@@ -72,12 +75,16 @@ proc parseCommand*(args: openArray[string]): Command =
         if val.len == 0:
           raise dispatchError("--template requires a value")
         templateName = val
+        templateExplicit = true
       of "release":
+        if val.len > 0:
+          raise dispatchError("--release does not take a value")
         release = true
       of "config", "c":
         if val.len == 0:
           raise dispatchError("--config requires a value")
         configPath = val
+        configExplicit = true
       else:
         raise dispatchError("unknown option: --" & key)
     of cmdEnd:
@@ -88,23 +95,37 @@ proc parseCommand*(args: openArray[string]): Command =
 
   case positionals[0]
   of "init":
+    if configExplicit:
+      raise dispatchError("viewy init does not accept --config")
+    if release:
+      raise dispatchError("viewy init does not accept --release")
     if positionals.len != 2:
       raise dispatchError("usage: viewy init <name> [--template vanilla]")
-    if templateName notin ["vanilla", "react", "svelte"]:
-      raise dispatchError("unknown template: " & templateName)
-    Command(kind: ckInit, name: positionals[1], templateName: templateName)
+    if templateName != "vanilla":
+      raise dispatchError("unknown template: " & templateName & " (supported: vanilla)")
+    Command(kind: ckInit, configPath: configPath, configExplicit: configExplicit,
+      name: positionals[1], templateName: templateName)
   of "dev":
+    if templateExplicit:
+      raise dispatchError("viewy dev does not accept --template")
+    if release:
+      raise dispatchError("viewy dev does not accept --release")
     if positionals.len != 1:
       raise dispatchError("usage: viewy dev [--config viewy.json]")
-    Command(kind: ckDev, configPath: configPath)
+    Command(kind: ckDev, configPath: configPath, configExplicit: configExplicit)
   of "build":
+    if templateExplicit:
+      raise dispatchError("viewy build does not accept --template")
     if positionals.len != 1:
       raise dispatchError("usage: viewy build [--release] [--config viewy.json]")
-    Command(kind: ckBuild, configPath: configPath, release: release)
+    Command(kind: ckBuild, configPath: configPath, configExplicit: configExplicit,
+      release: release)
   of "doctor":
+    if configExplicit or templateExplicit or release:
+      raise dispatchError("viewy doctor does not accept command options yet")
     if positionals.len != 1:
       raise dispatchError("usage: viewy doctor")
-    Command(kind: ckDoctor)
+    Command(kind: ckDoctor, configPath: configPath, configExplicit: configExplicit)
   else:
     raise dispatchError("unknown command: " & positionals[0])
 
@@ -123,14 +144,16 @@ proc runCli*(args: openArray[string]): CliResult =
     result.output = "viewy init is not implemented yet"
   of ckDev:
     try:
-      discard loadConfig(result.command.configPath)
+      discard loadConfig(result.command.configPath,
+        missingIsDefault = not result.command.configExplicit)
       result.output = "viewy dev is not implemented yet"
     except ConfigError as e:
       result.exitCode = 2
       result.error = e.msg
   of ckBuild:
     try:
-      discard loadConfig(result.command.configPath)
+      discard loadConfig(result.command.configPath,
+        missingIsDefault = not result.command.configExplicit)
       result.output = "viewy build is not implemented yet"
     except ConfigError as e:
       result.exitCode = 2

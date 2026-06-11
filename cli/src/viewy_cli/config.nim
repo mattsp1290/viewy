@@ -61,7 +61,9 @@ proc parseConfig*(json: string): ViewyConfig =
     raise configError("viewy.json: malformed config: " & e.msg)
   result.validate()
 
-proc loadConfig*(path = "viewy.json"): ViewyConfig =
+proc loadConfig*(path = "viewy.json"; missingIsDefault = true): ViewyConfig =
   if not fileExists(path):
+    if not missingIsDefault:
+      raise configError(path & ": config file not found")
     return DefaultConfig
   parseConfig(readFile(path))

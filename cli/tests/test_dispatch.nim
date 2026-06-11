@@ -7,6 +7,12 @@ suite "viewy dispatch":
     let cmd = parseCommand([])
     check cmd.kind == ckHelp
 
+  test "parses help and version flags":
+    check parseCommand(["--help"]).kind == ckHelp
+    check parseCommand(["-h"]).kind == ckHelp
+    check parseCommand(["--version"]).kind == ckVersion
+    check parseCommand(["-v"]).kind == ckVersion
+
   test "parses init with template":
     let cmd = parseCommand(["init", "demo", "--template", "vanilla"])
     check cmd.kind == ckInit
@@ -16,6 +22,8 @@ suite "viewy dispatch":
   test "rejects unknown template":
     expect DispatchError:
       discard parseCommand(["init", "demo", "--template", "solid"])
+    expect DispatchError:
+      discard parseCommand(["init", "demo", "--template", "react"])
 
   test "parses build release":
     let cmd = parseCommand(["build", "--release"])
@@ -27,6 +35,22 @@ suite "viewy dispatch":
     let cmd = parseCommand(["dev", "--config", "app.viewy.json"])
     check cmd.kind == ckDev
     check cmd.configPath == "app.viewy.json"
+    check cmd.configExplicit
+
+  test "explicit missing config path fails":
+    let result = runCli(["dev", "--config", "missing.viewy.json"])
+    check result.exitCode == 2
+    check result.error.contains("config file not found")
+
+  test "rejects options on unrelated commands":
+    expect DispatchError:
+      discard parseCommand(["init", "demo", "--release"])
+    expect DispatchError:
+      discard parseCommand(["init", "demo", "--config", "viewy.json"])
+    expect DispatchError:
+      discard parseCommand(["dev", "--template", "vanilla"])
+    expect DispatchError:
+      discard parseCommand(["doctor", "--config", "viewy.json"])
 
   test "reserves doctor command":
     let result = runCli(["doctor"])
