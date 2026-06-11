@@ -1,0 +1,11 @@
+{
+  "name": "viewy-app",
+  "title": "viewy app",
+  "width": 1024,
+  "height": 768,
+  "resizable": true,
+  "assets": "single",
+  "devUrl": "http://127.0.0.1:5173",
+  "frontendDir": ".",
+  "nimMain": "src/main.nim"
+}

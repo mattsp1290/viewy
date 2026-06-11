@@ -1,0 +1,13 @@
+# Package
+
+version       = "0.1.0"
+author        = "viewy"
+description   = "A viewy desktop app"
+license       = "MIT"
+srcDir        = "src"
+
+requires "nim >= 2.0.0"
+requires "viewy >= 0.1.0"
+
+task buildFrontend, "Build the single-file Vite frontend":
+  exec "npm run build"
