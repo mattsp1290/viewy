@@ -124,7 +124,7 @@ app.run()
 
 - **A. Single-file injection (default, zero ports):** Production builds require the frontend to emit one self-contained `index.html` (CSS/JS inlined). The scaffold templates use `vite-plugin-singlefile`. The CLI build step embeds it via `staticRead` (through a generated `viewy_assets.nim`) and calls `setHtml`. No sockets, no temp files. Matches Wails' "no network ports" property. Limitation: very large apps and `fetch()` of relative assets need B.
 - **B. Loopback micro-server (flag `assets = Served`):** Embed all of `dist/` into the binary (compile-time table: path → bytes, gzip-compressed with `zippy`). At startup, bind an `std/asynchttpdispatch`-based or hand-rolled HTTP/1.1 server on `127.0.0.1:0` (ephemeral port), require a per-launch random bearer token in a cookie set via injected JS, navigate the webview to it. Document the tradeoff honestly.
-- **Dev mode:** neither — `navigate(devServerUrl)` (Vite, default `http://localhost:5173`), enabled by compiling with `-d:viewyDev:URL`.
+- **Dev mode:** neither — `navigate(devServerUrl)` (Vite, default `http://localhost:5173`), enabled by compiling with `-d:viewyDev=http://localhost:5173`.
 
 ### 4.6 Threading rules
 
@@ -149,7 +149,7 @@ Separate nimble package `viewy_cli` (or same repo, `bin = @["viewy"]`). Dependen
 
 ### `viewy dev`
 - Spawns `npm run dev` (Vite) in `frontend/`, waits for the port to accept connections.
-- Compiles and runs the Nim app with `-d:viewyDev:http://localhost:5173 --mm:orc --threads:on -d:debug` (webview debug/devtools = true).
+- Compiles and runs the Nim app with `-d:viewyDev=http://localhost:5173 --mm:orc --threads:on`; webview debug/devtools come from passing `debug=true` to the app/backend, not from `-d:debug`.
 - Watches `src/**/*.nim` (use `std/os` polling watcher; no dep) → on change: rebuild, kill, relaunch the app process. Frontend changes are Vite HMR, no restart needed.
 - Clean shutdown of both children on Ctrl-C.
 

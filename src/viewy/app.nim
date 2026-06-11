@@ -86,7 +86,7 @@ proc run*(app: App) =
     app.backend.init(app.handle, viewyRuntimeJs)
     app.bindRpc()
     when defined(viewyDev):
-      app.backend.navigate(app.handle, app.devUrl)
+      app.backend.navigate(app.handle, viewyDevUrl)
     else:
       case app.assets
       of assetsDevServer:

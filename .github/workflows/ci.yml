@@ -59,6 +59,9 @@ jobs:
       - name: nim check library root
         run: nim check --hints:off src/viewy.nim
 
+      - name: Run dev-mode strdefine test
+        run: nim c --hints:off --mm:orc --threads:on -d:viewyDev=http://127.0.0.1:5174 -r tests/test_app_dev.nim
+
       - name: Create build directory
         run: python -c "import os; os.makedirs('build', exist_ok=True)"
 
