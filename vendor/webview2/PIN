@@ -6,5 +6,5 @@
 # that provide the Windows SDK header as lowercase <eventtoken.h>.
 dff1e3181ec7ec203a34ef6efa966590e0ef0ba1a5c3fe3b69da6508c2f8a02e  include/WebView2.h
 376cd853661e0fb4dc91bf7c6be0e15e501f4967ba9fb008be5a477b0c282cce  include/WebView2EnvironmentOptions.h
-c33a2e4e9cd2fc7713b8e6bfa940f0471f6d67d3c1a87e5dc79b455e7f9af211  include/EventToken.h
+99fcbaaeee4f7ebb685614b15fa07e2a35f738d18eedc9a1346c14c5219c6b06  include/EventToken.h
 0af8f1b807512aae39c2ac1aa4d0cae65cabecb6fd554b8439a5162a0d6eca55  LICENSE.txt
