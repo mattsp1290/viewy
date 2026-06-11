@@ -14,8 +14,10 @@ requires "nim >= 2.0.0"
 requires "jsony == 1.1.6"
 requires "zippy == 0.10.19"
 
+import std/os
+
 task pretty, "Run nimpretty over the source tree (not yet gating in CI)":
-  for dir in ["src", "src/viewy", "src/viewy/backend", "tests"]:
-    for f in listFiles(dir):
+  for root in ["src", "tests"]:
+    for f in walkDirRec(root):
       if f.endsWith(".nim"):
         exec "nimpretty " & f

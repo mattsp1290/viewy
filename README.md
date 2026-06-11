@@ -16,6 +16,9 @@ viewy is built and tested with:
 nim c --mm:orc --threads:on src/viewy.nim
 ```
 
+(This compiles the library root to document the supported flag set —
+runnable apps are built through the CLI and `examples/` once they land.)
+
 `--mm:orc --threads:on` is the supported memory-management/threading
 configuration: all backend callbacks are `{.gcsafe.}` and cross-thread
 work (e.g. `emit` from worker threads) routes through the backend's

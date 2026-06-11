@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: jiro4989/setup-nim-action@v2
+      - uses: jiro4989/setup-nim-action@v2.3.0
         with:
           nim-version: "2.2.x"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -41,6 +41,14 @@ jobs:
       - name: Set up MSVC
         if: matrix.compiler == 'vcc'
         uses: ilammy/msvc-dev-cmd@v1
+
+      # Nim defaults to gcc/clang/MinGW per platform, which matches every
+      # other lane; only vcc needs explicit selection. Appending to nim.cfg
+      # reaches every nim invocation below, including nimble's test compiles.
+      - name: Select MSVC backend (vcc lane)
+        if: matrix.compiler == 'vcc'
+        shell: bash
+        run: printf '\n--cc:vcc\n' >> nim.cfg
 
       - name: nimble check
         run: nimble check
