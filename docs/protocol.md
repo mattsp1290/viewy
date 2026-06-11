@@ -92,19 +92,17 @@ starting the future.
 
 ## Events
 
-Backend-to-JavaScript events are reserved for the injected `__viewy` runtime.
-That runtime is not implemented yet; `src/viewy/events.nim` is currently a
-stub.
-
-The planned transport will evaluate a call equivalent to:
+Backend-to-JavaScript events are delivered by the injected `__viewy` runtime.
+The backend event transport evaluates a call equivalent to:
 
 ```js
 window.__viewy.emit(eventName, payload)
 ```
 
-The event name is a JSON string value. The payload is any jsony-serialized JSON
-value. Once implemented, the JavaScript runtime will dispatch the payload to
-callbacks registered for that event name.
+The event name is encoded as a JSON string literal. The payload is any
+jsony-serialized JSON value. The JavaScript runtime dispatches the payload to
+callbacks registered with `window.__viewy.on(eventName, callback)` and invokes
+callbacks as `callback(payload, eventName)`.
 
 The event envelope is intentionally minimal:
 
@@ -117,8 +115,12 @@ The event envelope is intentionally minimal:
 
 The object above is the reserved logical shape for tooling. The transport may
 inline it as JavaScript source instead of sending this exact object over a
-separate channel. Until the event runtime lands, TypeScript bindgen should treat
-events as a planned protocol surface rather than an implemented runtime API.
+separate channel.
+
+Nim `emit` serializes on the calling thread and queues the final JavaScript
+source through the backend typed eval handoff, so event emission is intended to
+be callable from worker threads without moving GC-managed closures across
+threads.
 
 ## Metadata
 
