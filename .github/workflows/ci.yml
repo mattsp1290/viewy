@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            compiler: gcc
+          - os: macos-latest
+            compiler: clang
+          - os: windows-latest
+            compiler: mingw
+          - os: windows-latest
+            compiler: vcc
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }} (${{ matrix.compiler }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: "2.2.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # webview/webview needs GTK + WebKitGTK on Linux; windows in CI run
+      # under a virtual display.
+      - name: Install Linux webview dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      # The vcc lane needs the MSVC toolchain on PATH (C++14 for WebView2).
+      - name: Set up MSVC
+        if: matrix.compiler == 'vcc'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: nimble check
+        run: nimble check
+
+      - name: nim check library root
+        run: nim check --hints:off src/viewy.nim
+
+      - name: Run tests (xvfb)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a nimble test -y
+
+      - name: Run tests
+        if: runner.os != 'Linux'
+        run: nimble test -y
+
+      # Wired but not yet gating (spec §9): surfaces drift without failing CI.
+      - name: nimpretty (non-gating)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: |
+          nimble pretty
+          git diff --exit-code
