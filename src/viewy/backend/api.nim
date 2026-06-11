@@ -41,6 +41,11 @@ type
       ## not move worker-created GC-managed closures across threads under ORC;
       ## backend-specific typed handoff helpers carry cross-thread payloads.
 
+    dispatchEval*: proc(h: BackendHandle, js: string) {.closure, gcsafe.}
+      ## Schedule JavaScript evaluation from the UI thread or a worker thread.
+      ## Implementations must copy `js` into unmanaged storage before crossing
+      ## threads; this is the backend-to-JS event handoff path.
+
     setTitle*: proc(h: BackendHandle, title: string) {.closure.}
       ## Main thread only. Set the native window title.
 
