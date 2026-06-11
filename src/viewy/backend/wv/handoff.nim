@@ -62,24 +62,28 @@ proc newPayload(kind: HandoffKind; a: string; b = "";
     raise
 
 proc runHandoff(w: Webview; arg: pointer) {.cdecl, gcsafe.} =
-  let payload = cast[ptr HandoffPayload](arg)
+  var payload = cast[ptr HandoffPayload](arg)
   if payload == nil:
     return
 
-  let kind = payload.kind
-  let ok = payload.ok
-  let a = payload.a.toString()
-  let b = payload.b.toString()
-  freePayload(payload)
+  try:
+    let kind = payload.kind
+    let ok = payload.ok
+    let a = payload.a.toString()
+    let b = payload.b.toString()
+    freePayload(payload)
+    payload = nil
 
-  case kind
-  of hkEval:
-    discard webviewEval(w, a.cstring)
-  of hkResolve:
-    let status = if ok: cint(0) else: cint(1)
-    discard webviewReturn(w, a.cstring, status, b.cstring)
-  of hkTerminate:
-    discard webviewTerminate(w)
+    case kind
+    of hkEval:
+      discard webviewEval(w, a.cstring)
+    of hkResolve:
+      let status = if ok: cint(0) else: cint(1)
+      discard webviewReturn(w, a.cstring, status, b.cstring)
+    of hkTerminate:
+      discard webviewTerminate(w)
+  except CatchableError:
+    freePayload(payload)
 
 proc dispatchPayload(w: Webview; payload: ptr HandoffPayload) =
   let err = webviewDispatch(w, runHandoff, payload)

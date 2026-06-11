@@ -1,6 +1,6 @@
 ## webview/webview backend implementation.
 
-import std/strformat
+import std/[locks, strformat]
 
 import ../api
 import ./ffi
@@ -20,6 +20,7 @@ type
     fn: DispatchProc
 
   SharedState = object
+    lock: Lock
     webview: Webview
     mainThreadId: int
     closed: bool
@@ -64,6 +65,22 @@ proc requireOpen(shared: ptr SharedState; op: string) =
 
 proc requireOpen(state: WvState; op: string) =
   state.shared.requireOpen(op)
+
+proc openWebview(shared: ptr SharedState; op: string): Webview =
+  acquire(shared.lock)
+  result = shared.webview
+  let isClosed = shared.closed or result == nil
+  release(shared.lock)
+  if isClosed:
+    raise newException(WvBackendError, op & " failed: backend is closed")
+
+proc closeWebview(shared: ptr SharedState): Webview =
+  acquire(shared.lock)
+  if not shared.closed:
+    shared.closed = true
+    result = shared.webview
+    shared.webview = nil
+  release(shared.lock)
 
 proc toHint(hint: WindowHints): WebviewHint =
   case hint
@@ -132,6 +149,7 @@ proc create(debug: bool): BackendHandle =
     mainThreadId: getThreadId(),
     closed: false,
   )
+  initLock(shared.lock)
 
   let state = WvState(
     shared: shared,
@@ -144,12 +162,13 @@ proc create(debug: bool): BackendHandle =
 proc destroy(h: BackendHandle) =
   let state = h.toState
   state.assertUiThread
-  if not state.shared.closed:
-    state.shared.closed = true
-    expectOk("webview_destroy", webviewDestroy(state.shared.webview))
-    state.shared.webview = nil
+  let webview = closeWebview(state.shared)
+  if webview != nil:
+    expectOk("webview_destroy", webviewDestroy(webview))
   unrootState state
-  deallocShared(state.shared)
+  # SharedState intentionally remains allocated after destroy. BackendHandle is
+  # an unmanaged pointer that worker threads may still hold; keeping the closed
+  # state readable lets late typed handoffs fail before touching native handles.
 
 proc run(h: BackendHandle) =
   let state = h.toState
@@ -162,8 +181,8 @@ proc terminate(h: BackendHandle) {.gcsafe.} =
   when not defined(release):
     doAssert getThreadId() == shared.mainThreadId,
       "viewy backend operation must run on the UI thread"
-  shared.requireOpen("webview_terminate")
-  expectOk("webview_terminate", webviewTerminate(shared.webview))
+  expectOk("webview_terminate", webviewTerminate(shared.openWebview(
+      "webview_terminate")))
 
 proc dispatch(h: BackendHandle; fn: DispatchProc) {.gcsafe.} =
   let state = block:
@@ -260,21 +279,33 @@ proc resolve(h: BackendHandle; id: string; ok: bool; jsonResult: string) =
 proc dispatchEval*(h: BackendHandle; js: string) {.gcsafe.} =
   ## Thread-safe eval handoff for serialized backend-to-JS payloads.
   let shared = h.toShared
-  shared.requireOpen("webview_dispatch")
-  handoff.dispatchEval(shared.webview, js)
+  acquire(shared.lock)
+  try:
+    shared.requireOpen("webview_dispatch")
+    handoff.dispatchEval(shared.webview, js)
+  finally:
+    release(shared.lock)
 
 proc dispatchResolve*(h: BackendHandle; id: string; ok: bool;
     jsonResult: string) {.gcsafe.} =
   ## Thread-safe resolve handoff for deferred RPC completions.
   let shared = h.toShared
-  shared.requireOpen("webview_dispatch")
-  handoff.dispatchResolve(shared.webview, id, ok, jsonResult)
+  acquire(shared.lock)
+  try:
+    shared.requireOpen("webview_dispatch")
+    handoff.dispatchResolve(shared.webview, id, ok, jsonResult)
+  finally:
+    release(shared.lock)
 
 proc dispatchTerminate*(h: BackendHandle) {.gcsafe.} =
   ## Thread-safe terminate handoff used by stress tests and shutdown paths.
   let shared = h.toShared
-  shared.requireOpen("webview_dispatch")
-  handoff.dispatchTerminate(shared.webview)
+  acquire(shared.lock)
+  try:
+    shared.requireOpen("webview_dispatch")
+    handoff.dispatchTerminate(shared.webview)
+  finally:
+    release(shared.lock)
 
 proc newBackend*(): Backend =
   ## Return the vtable implementation backed by vendored webview/webview.
