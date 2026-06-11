@@ -170,6 +170,24 @@ doAssert resolvedJsonFor("rpc-async").fromJson(int) == 5
 
 resetState()
 
+let embeddedApp = newApp(backend = fakeBackend)
+embeddedApp.run()
+
+doAssert destroyed
+doAssert htmlSeen == fallbackEmbeddedHtml
+doAssert navigatedTo == ""
+
+resetState()
+
+let emptyHtmlApp = newApp(html = "", backend = fakeBackend)
+emptyHtmlApp.run()
+
+doAssert destroyed
+doAssert htmlSeen == ""
+doAssert navigatedTo == ""
+
+resetState()
+
 let devApp = newApp(assets = assetsDevServer, devUrl = "http://127.0.0.1:7777",
     backend = fakeBackend)
 devApp.run()

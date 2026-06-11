@@ -22,10 +22,8 @@ type
     html: string
     devUrl: string
 
-const defaultHtml = "<!doctype html><meta charset=\"utf-8\"><div id=\"app\"></div>"
-
 proc newApp*(title = "viewy"; width = 1024; height = 768;
-    resizable = true; assets = assetsEmbedded; html = defaultHtml;
+    resizable = true; assets = assetsEmbedded; html = defaultEmbeddedHtml;
     devUrl = "http://localhost:5173"; debug = false;
     backend = newBackend()): App =
   ## Create an app configuration.
@@ -94,7 +92,8 @@ proc run*(app: App) =
       of assetsDevServer:
         app.backend.navigate(app.handle, app.devUrl)
       of assetsEmbedded:
-        app.backend.setHtml(app.handle, app.html)
+        let html = if app.html == defaultEmbeddedHtml: embeddedHtml() else: app.html
+        app.backend.setHtml(app.handle, html)
     app.backend.run(app.handle)
   finally:
     app.backend.destroy(app.handle)
