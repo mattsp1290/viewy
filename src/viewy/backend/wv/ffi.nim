@@ -30,7 +30,10 @@ type
   WebviewDispatchCallback* = proc(w: Webview; arg: pointer) {.cdecl, gcsafe.}
     ## C callback used by `webview_dispatch`.
 
-  WebviewBindCallback* = proc(id, req: cstring; arg: pointer) {.cdecl, gcsafe.}
+  ConstCString* {.importc: "const char *".} = cstring
+    ## Const C string pointer received from webview callbacks.
+
+  WebviewBindCallback* = proc(id, req: ConstCString; arg: pointer) {.cdecl, gcsafe.}
     ## C callback used by `webview_bind`.
 
 proc webviewCreate*(debug: cint; window: pointer): Webview
@@ -45,7 +48,8 @@ proc webviewRun*(w: Webview): WebviewError
 proc webviewTerminate*(w: Webview): WebviewError
   {.importc: "webview_terminate", header: "webview.h", cdecl.}
 
-proc webviewDispatch*(w: Webview; fn: WebviewDispatchCallback; arg: pointer): WebviewError
+proc webviewDispatch*(w: Webview; fn: WebviewDispatchCallback;
+    arg: pointer): WebviewError
   {.importc: "webview_dispatch", header: "webview.h", cdecl.}
 
 proc webviewBind*(w: Webview; name: cstring; fn: WebviewBindCallback;
@@ -55,7 +59,8 @@ proc webviewBind*(w: Webview; name: cstring; fn: WebviewBindCallback;
 proc webviewUnbind*(w: Webview; name: cstring): WebviewError
   {.importc: "webview_unbind", header: "webview.h", cdecl.}
 
-proc webviewReturn*(w: Webview; id: cstring; status: cint; result: cstring): WebviewError
+proc webviewReturn*(w: Webview; id: cstring; status: cint;
+    result: cstring): WebviewError
   {.importc: "webview_return", header: "webview.h", cdecl.}
   ## Complete a binding request.
   ##
@@ -75,7 +80,8 @@ proc webviewSetHtml*(w: Webview; html: cstring): WebviewError
 proc webviewNavigate*(w: Webview; url: cstring): WebviewError
   {.importc: "webview_navigate", header: "webview.h", cdecl.}
 
-proc webviewSetSize*(w: Webview; width, height: cint; hints: WebviewHint): WebviewError
+proc webviewSetSize*(w: Webview; width, height: cint;
+    hints: WebviewHint): WebviewError
   {.importc: "webview_set_size", header: "webview.h", cdecl.}
 
 proc webviewSetTitle*(w: Webview; title: cstring): WebviewError
