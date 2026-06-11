@@ -9,7 +9,7 @@ type
   Webview* = pointer
     ## Opaque `webview_t`.
 
-  WebviewError* = enum
+  WebviewError* {.size: sizeof(cint).} = enum
     ## `webview_error_t` values from webview 0.12.0.
     wvMissingDependency = -5
     wvCanceled = -4
@@ -20,7 +20,7 @@ type
     wvDuplicate = 1
     wvNotFound = 2
 
-  WebviewHint* = enum
+  WebviewHint* {.size: sizeof(cint).} = enum
     ## `webview_hint_t` values from webview 0.12.0.
     wvHintNone = 0
     wvHintMin = 1
