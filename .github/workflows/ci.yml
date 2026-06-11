@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - "ralph/**"
   pull_request:
   workflow_dispatch:
 
@@ -30,8 +32,8 @@ jobs:
           nim-version: "2.2.x"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # webview/webview needs GTK + WebKitGTK on Linux; windows in CI run
-      # under a virtual display.
+      # webview/webview needs GTK + WebKitGTK on Linux; the Linux smoke
+      # runs under a virtual display.
       - name: Install Linux webview dependencies
         if: runner.os == 'Linux'
         run: |
