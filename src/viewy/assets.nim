@@ -35,6 +35,8 @@ const
   generatedEmbeddedHtmlSymbol* = "viewyEmbeddedHtml"
   fallbackEmbeddedHtml* = "<!doctype html><meta charset=\"utf-8\"><div id=\"app\"></div>"
   defaultEmbeddedHtml* = fallbackEmbeddedHtml
+  viewyDevUrl* {.strdefine: "viewyDev".} = "http://localhost:5173"
+    ## Development server URL selected by `-d:viewyDev=<url>`.
 
 proc embeddedHtml*(): string =
   ## Return the HTML document used by embedded asset mode.
