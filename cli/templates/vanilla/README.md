@@ -15,7 +15,6 @@ the network.
 ```bash
 npm ci
 npm run dev
-npm run build
 ```
 
 Production builds use Vite with `vite-plugin-singlefile` and emit one
@@ -23,15 +22,11 @@ self-contained `dist/index.html`. Keep browser assets under `src/assets/`;
 files in `public/` are copied as separate files and are not inlined by the
 single-file build.
 
-## Backend
+## Build
 
 ```bash
-nim c --mm:orc --threads:on src/main.nim
+viewy build --release
 ```
 
-When developing this template from a local viewy checkout before the package
-is published, compile with an explicit library path:
-
-```bash
-nim c --path:/path/to/viewy/src --mm:orc --threads:on src/main.nim
-```
+`viewy build` runs the Vite build, generates `src/viewy_assets.nim`, compiles
+the Nim backend with embedded assets, and writes the binary under `build/`.

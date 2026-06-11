@@ -16,6 +16,7 @@ suite "viewy init":
       let output = initProject("demo-app", destRoot = dir, templateRoot = templateRoot)
       let appDir = dir / "demo-app"
       check output.contains("Created demo-app")
+      check output.contains("viewy build --release")
       check fileExists(appDir / "viewy.json")
       check fileExists(appDir / ".gitignore")
       check fileExists(appDir / "demo_app.nimble")
