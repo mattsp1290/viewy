@@ -10,6 +10,7 @@ tests/tviewy
 cli/viewy
 cli/tests/test_config
 cli/tests/test_dispatch
+cli/tests/test_init
 
 # Agent review artifacts
 .agents/reviews/
