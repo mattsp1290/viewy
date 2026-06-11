@@ -1,0 +1,8 @@
+# package: Microsoft.Web.WebView2
+# version: 1.0.4022.49
+# source: https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.4022.49/microsoft.web.webview2.1.0.4022.49.nupkg
+# nupkg_sha256: ee9de67e5bb9ef3a96c5689b2efc8188e2df160a0e79234c0404243782fde5fb
+dff1e3181ec7ec203a34ef6efa966590e0ef0ba1a5c3fe3b69da6508c2f8a02e  include/WebView2.h
+376cd853661e0fb4dc91bf7c6be0e15e501f4967ba9fb008be5a477b0c282cce  include/WebView2EnvironmentOptions.h
+c33a2e4e9cd2fc7713b8e6bfa940f0471f6d67d3c1a87e5dc79b455e7f9af211  include/EventToken.h
+0af8f1b807512aae39c2ac1aa4d0cae65cabecb6fd554b8439a5162a0d6eca55  LICENSE.txt
