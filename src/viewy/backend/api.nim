@@ -37,9 +37,9 @@ type
       ## Main thread only. Request that the backend event loop stop.
 
     dispatch*: proc(h: BackendHandle, fn: DispatchProc) {.closure, gcsafe.}
-      ## Thread-safe. Schedule `fn` to run on the backend UI thread. This is
-      ## the only backend operation that may be called away from the main
-      ## thread.
+      ## Schedule `fn` to run on the backend UI thread. Implementations must
+      ## not move worker-created GC-managed closures across threads under ORC;
+      ## backend-specific typed handoff helpers carry cross-thread payloads.
 
     setTitle*: proc(h: BackendHandle, title: string) {.closure.}
       ## Main thread only. Set the native window title.
