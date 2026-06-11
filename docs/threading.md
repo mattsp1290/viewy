@@ -28,8 +28,9 @@ allocation plus the already-vendored `webview_dispatch` API.
 
 Channels or `isolate` are deliberately not the first implementation. They can be
 added later if the public API needs a general-purpose cross-thread queue, but
-the Phase 1 requirements only need two typed message paths: event emission and
-RPC promise resolution.
+the Phase 1 requirements primarily need two typed message paths: event emission
+and RPC promise resolution. The backend also provides a small terminate handoff
+for stress tests and shutdown paths.
 
 ## Payload shape
 
@@ -45,6 +46,7 @@ type
   HandoffKind = enum
     hkEval
     hkResolve
+    hkTerminate
 
   SharedBytes = object
     len: int
@@ -64,6 +66,8 @@ type
   `b` is empty.
 - `hkResolve`: `a` is the webview bind request id; `b` is the JSON result; `ok`
   maps to `webview_return` status `0` or `1`.
+- `hkTerminate`: no byte fields are required; the callback requests native
+  termination on the UI thread.
 
 The C callback passed to `webview_dispatch` must be a top-level proc with the C
 signature from `ffi.nim`, not a closure:
@@ -131,9 +135,8 @@ and `ok = false` maps to status `1`.
   may be stored in `HandoffPayload`.
 
 The generic backend `dispatch(h, fn: DispatchProc)` is still useful for
-main-thread-created work and for the early backend placeholder, but app-level
-cross-thread features must use the typed handoff helpers rather than passing a
-worker-created closure.
+main-thread-created work, but app-level cross-thread features must use the typed
+handoff helpers rather than passing a worker-created closure.
 
 ## Lifecycle and failure modes
 
@@ -149,8 +152,7 @@ are best-effort:
   `webview_dispatch`;
 - if `webview_dispatch` returns an error, free and drop the payload;
 - if a payload reaches the UI thread after shutdown has started, free it and
-  skip the native operation. If a future termination handoff is added, document
-  its separate shutdown exception beside the new handoff kind.
+  skip the native operation unless it is the termination handoff.
 
 Delivery after termination is not guaranteed. The guarantee is memory safety:
 payload ownership is explicit, and every accepted callback path has a single
@@ -166,8 +168,8 @@ UI-thread callbacks still guard native operations against a destroyed handle.
 - Keep `runHandoff` top-level and `{.cdecl, gcsafe.}`.
 - Prefer one helper for copying a Nim string to `SharedBytes` and one helper for
   freeing a partially-built payload, so allocation failures do not leak.
-- Add a TODO anchor in the placeholder backend dispatch implementation pointing
-  to this document and the handoff implementation bead.
+- Keep generic closure dispatch limited to UI-thread-created work; cross-thread
+  app operations must use typed handoff helpers.
 - Stress testing belongs in the later handoff test bead: worker threads should
   schedule many emits while the UI loop runs, then terminate under an outer
   watchdog.
