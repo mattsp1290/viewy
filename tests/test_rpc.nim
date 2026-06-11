@@ -66,4 +66,35 @@ doAssert metadata[0]["params"][0]["typ"].getStr == "string"
 doAssert metadata[0]["returnType"].getStr == "string"
 doAssert metadata[0]["async"].getBool == false
 
+let malformed = binding("add").call("9", "{")
+doAssert not malformed.ok
+doAssert parseJson(malformed.json)["error"]["type"].getStr.len > 0
+
+let wrongType = binding("add").call("10", """["x", 1]""")
+doAssert not wrongType.ok
+doAssert parseJson(wrongType.json)["error"]["type"].getStr.len > 0
+
+proc firstWrapper(id, jsonArgs: string): RpcReply {.gcsafe.} =
+  discard id
+  discard jsonArgs
+  RpcReply(ok: true, json: "1")
+
+proc secondWrapper(id, jsonArgs: string): RpcReply {.gcsafe.} =
+  discard id
+  discard jsonArgs
+  RpcReply(ok: true, json: "2")
+
+clearBindingsForTests()
+registerBinding(
+  RpcBinding(name: "dup", call: firstWrapper),
+  RpcBindingMetadata(name: "dup", returnType: "string", async: false),
+)
+registerBinding(
+  RpcBinding(name: "dup", call: secondWrapper),
+  RpcBindingMetadata(name: "dup", returnType: "int", async: false),
+)
+doAssert bindings().len == 1
+doAssert bindings()[0].call("8", "[]").json == "2"
+doAssert bindingMetadata()[0].returnType == "int"
+
 echo "ok: rpc expose wrappers"

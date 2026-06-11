@@ -77,7 +77,9 @@ proc bindingMetadata*(): lent seq[RpcBindingMetadata] =
   metadataRegistry
 
 proc dumpBindingsJson*(): string =
-  ## Return JSON metadata for tooling and `-d:viewyDumpBindings` verification.
+  ## Return a JSON array of `RpcBindingMetadata` objects.
+  ##
+  ## Field names are part of the public metadata schema consumed by tooling.
   metadataRegistry.toJson()
 
 proc clearBindingsForTests*() =
@@ -87,6 +89,8 @@ proc clearBindingsForTests*() =
 
 macro viewyDumpBinding(metadata: static[string]): untyped =
   when defined(viewyDumpBindings):
+    ## Compile-time dump mode emits one JSON metadata object per line.
+    ## Consumers should parse it as newline-delimited JSON.
     echo metadata
   result = newStmtList()
 
