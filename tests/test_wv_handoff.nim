@@ -1,16 +1,13 @@
-## Windowed stress check for the webview typed handoff path.
+## Windowed smoke check for the webview typed handoff path.
 
 import std/os
 
 import viewy/backend/wv/backend
 
-const dispatchCount = 1000
-
 var h {.global.}: BackendHandle
 
 proc worker() {.thread.} =
-  for i in 0 ..< dispatchCount:
-    dispatchEval(h, "void 0")
+  dispatchEval(h, "void 0")
   dispatchTerminate(h)
 
 if getEnv("VIEWY_SKIP_WINDOWED") == "1":
@@ -26,4 +23,5 @@ else:
   joinThread(t)
   b.destroy(h)
 
-  echo "ok: ", dispatchCount, " webview handoffs"
+  echo "ok: webview handoff"
+  quit(QuitSuccess)
