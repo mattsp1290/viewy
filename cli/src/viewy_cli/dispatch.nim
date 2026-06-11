@@ -1,5 +1,7 @@
-import std/[parseopt, strutils]
+import std/[os, parseopt, strutils]
 
+import viewy_cli/assets_gen
+import viewy_cli/build
 import viewy_cli/config
 import viewy_cli/init
 
@@ -157,10 +159,20 @@ proc runCli*(args: openArray[string]): CliResult =
       result.error = e.msg
   of ckBuild:
     try:
-      discard loadConfig(result.command.configPath,
+      let cfg = loadConfig(result.command.configPath,
         missingIsDefault = not result.command.configExplicit)
-      result.output = "viewy build is not implemented yet"
+      let projectDir = if result.command.configExplicit:
+        parentDir(absolutePath(result.command.configPath))
+      else:
+        "."
+      result.output = buildApp(cfg, result.command.release, projectDir)
     except ConfigError as e:
+      result.exitCode = 2
+      result.error = e.msg
+    except BuildError as e:
+      result.exitCode = 2
+      result.error = e.msg
+    except AssetsGenError as e:
       result.exitCode = 2
       result.error = e.msg
   of ckDoctor:

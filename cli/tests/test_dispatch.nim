@@ -1,4 +1,4 @@
-import std/[strutils, unittest]
+import std/[os, strutils, tempfiles, unittest]
 
 import viewy_cli/dispatch
 
@@ -41,6 +41,36 @@ suite "viewy dispatch":
     let result = runCli(["dev", "--config", "missing.viewy.json"])
     check result.exitCode == 2
     check result.error.contains("config file not found")
+
+  test "build anchors explicit config paths to the config directory":
+    let dir = createTempDir("viewy-dispatch-config", "")
+    let old = getCurrentDir()
+    try:
+      let appDir = dir / "app"
+      createDir(appDir)
+      writeFile(appDir / "viewy.json", """
+        {
+          "name": "demo",
+          "title": "Demo",
+          "width": 800,
+          "height": 600,
+          "resizable": true,
+          "assets": "single",
+          "devUrl": "http://127.0.0.1:5173",
+          "frontendDir": "frontend",
+          "nimMain": "src/main.nim"
+        }
+      """)
+
+      setCurrentDir(dir)
+      let result = runCli(["build", "--config", appDir / "viewy.json"])
+
+      check result.exitCode == 2
+      check result.error.contains(appDir / "frontend")
+      check not result.error.contains(dir / "frontend")
+    finally:
+      setCurrentDir(old)
+      removeDir(dir)
 
   test "rejects options on unrelated commands":
     expect DispatchError:

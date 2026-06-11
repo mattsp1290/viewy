@@ -46,7 +46,10 @@ proc copyTemplate(templateDir, destDir: string) =
     if shouldSkipTemplatePath(rel):
       continue
     var target = destDir / rel
-    if splitFile(target).name == "viewy_app" and splitFile(target).ext == ".nimble":
+    let targetParts = splitFile(target)
+    if targetParts.name == "viewy_app" and targetParts.ext == ".nimble":
+      target = destDir / "viewy_app.nimble"
+    elif targetParts.name == "viewy_app" and targetParts.ext == ".pkgtemplate":
       target = destDir / "viewy_app.nimble"
     createDir(parentDir(target))
     copyFile(path, target)
@@ -118,4 +121,4 @@ proc initProject*(name: string; templateName = "vanilla"; destRoot = ".";
     raise
 
   result = "Created " & name & "\n\nNext steps:\n  cd " & name &
-    "\n  npm ci\n  npm run build\n  nim c --mm:orc --threads:on src/main.nim"
+    "\n  npm ci\n  viewy build --release"
