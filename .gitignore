@@ -1,6 +1,15 @@
 nimcache/
 nimblecache/
 htmldocs/
+build/
+*.exe
+*.dll
+
+# Compiled test binaries (nimble test output)
+tests/tviewy
+
+# Agent review artifacts
+.agents/reviews/
 
 # Beads / Dolt files (added by bd init)
 .dolt/
