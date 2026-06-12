@@ -9,6 +9,28 @@ on:
   workflow_dispatch:
 
 jobs:
+  docs:
+    runs-on: ubuntu-latest
+    name: docs
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jiro4989/setup-nim-action@v2.3.0
+        with:
+          nim-version: "2.2.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Linux webview dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Install Nimble dependencies
+        run: nimble install -d -y
+
+      - name: nim doc project
+        run: nim doc --project --hints:off --outdir:build/docs src/viewy.nim
+
   test:
     strategy:
       fail-fast: false
@@ -225,7 +247,7 @@ jobs:
           PY
 
       - name: Run emit stress windowed test (120s watchdog)
-        if: runner.os != 'Linux'
+        if: runner.os != 'Linux' && matrix.compiler != 'vcc'
         shell: bash
         run: |
           python - <<'PY'

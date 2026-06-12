@@ -1,6 +1,7 @@
 ## JavaScript runtime injected into each webview before page scripts run.
 
-const viewyRuntimeJs* = """
+const
+  viewyRuntimeJs* = """
 (function(w){
 var v=w.__viewy||{},e=v._e||{},s=Array.prototype.slice;
 v.call=function(n){var f=w[n];if(typeof f!="function")return Promise.reject(new Error("viewy binding not found: "+n));return f.apply(w,s.call(arguments,1));};
@@ -10,3 +11,4 @@ v.emit=function(n,p){var l=e[n],i,x;if(!l)return;l=l.slice();for(i=0;i<l.length;
 v._e=e;w.__viewy=v;
 })(window);
 """
+    ## JavaScript source injected before page scripts to provide `window.__viewy`.
