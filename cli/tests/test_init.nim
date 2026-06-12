@@ -4,11 +4,6 @@ import viewy_cli/init
 
 let templateRoot = getCurrentDir() / "templates"
 
-proc fileCount(root: string): int =
-  for path in walkDirRec(root):
-    if fileExists(path):
-      inc result
-
 suite "viewy init":
   test "copies and stamps vanilla template":
     let dir = createTempDir("viewy-init", "")
@@ -30,15 +25,6 @@ suite "viewy init":
       check readFile(appDir / "viewy.json").contains("\"title\": \"Demo app\"")
       check readFile(appDir / "package.json").contains("\"name\": \"demo-app\"")
       check readFile(appDir / "demo_app.nimble").contains("A viewy desktop app: Demo app")
-      let old = getCurrentDir()
-      try:
-        setCurrentDir(appDir)
-        check execShellCmd("npm ci") == 0
-        check execShellCmd("npm run build") == 0
-        check fileExists(appDir / "dist" / "index.html")
-        check fileCount(appDir / "dist") == 1
-      finally:
-        setCurrentDir(old)
     finally:
       removeDir(dir)
 

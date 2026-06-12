@@ -187,6 +187,24 @@ jobs:
         env:
           VIEWY_SKIP_WINDOWED: "1"
 
+      - name: nimble check CLI
+        working-directory: cli
+        run: nimble check
+
+      - name: Run CLI tests (xvfb)
+        if: runner.os == 'Linux'
+        working-directory: cli
+        run: xvfb-run -a nimble test -y
+        env:
+          VIEWY_LIB_SRC: ${{ github.workspace }}
+
+      - name: Run CLI tests
+        if: runner.os != 'Linux'
+        working-directory: cli
+        run: nimble test -y
+        env:
+          VIEWY_LIB_SRC: ${{ github.workspace }}
+
       # Wired but not yet gating (spec §9): surfaces drift without failing CI.
       - name: nimpretty (non-gating)
         if: runner.os == 'Linux'
