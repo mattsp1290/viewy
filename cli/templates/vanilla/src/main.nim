@@ -10,7 +10,6 @@ when isMainModule:
       let b = newBackend()
       let h = b.create(false)
       b.setTitle(h, "viewy app")
-      b.setSize(h, 1024, 768, whNone)
       b.init(h, viewyRuntimeJs)
       b.setHtml(h, embeddedHtml())
       dispatchTerminate(h)
