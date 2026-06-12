@@ -34,16 +34,22 @@ type
 
 const
   generatedAssetsModuleName* = "viewy_assets"
+    ## Generated Nim module name used by embedded asset mode.
   generatedEmbeddedHtmlSymbol* = "viewyEmbeddedHtml"
+    ## Generated const name expected to contain the single-file HTML document.
   fallbackEmbeddedHtml* = "<!doctype html><meta charset=\"utf-8\"><div id=\"app\"></div>"
+    ## Minimal HTML document used when no generated embedded assets are present.
   defaultEmbeddedHtml* = fallbackEmbeddedHtml
-  defaultAssetMode* =
-    when defined(viewyGeneratedServedAssets):
-      assetsServedMode
-    else:
-      assetsEmbedded
+    ## Default HTML document passed to `newApp` for embedded asset mode.
   viewyDevUrl* {.strdefine: "viewyDev".} = "http://localhost:5173"
     ## Development server URL selected by `-d:viewyDev=<url>`.
+
+when defined(viewyGeneratedServedAssets):
+  const defaultAssetMode* = assetsServedMode
+    ## Default asset mode selected at compile time.
+else:
+  const defaultAssetMode* = assetsEmbedded
+    ## Default asset mode selected at compile time.
 
 proc embeddedHtml*(): string =
   ## Return the HTML document used by embedded asset mode.

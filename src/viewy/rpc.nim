@@ -23,33 +23,50 @@ type
     ## Immediate wrapper result. Async wrappers return `pending = true` after
     ## scheduling completion through the supplied resolver.
     ok*: bool
+      ## True when the RPC completed successfully.
     pending*: bool
+      ## True when an async RPC will resolve later through a resolver.
     json*: string
+      ## JSON result value on success or JSON error envelope on failure.
 
   RpcBinding* = object
     ## Runtime binding registered by `expose`.
     name*: string
+      ## JavaScript-visible binding name.
     call*: RpcWrapper
+      ## Synchronous wrapper used by tests and sync-only call paths.
     callWithResolver*: RpcAsyncWrapper
+      ## Wrapper that can complete async results through a resolver.
 
   RpcParamMetadata* = object
     ## Parameter metadata emitted for future tooling.
     name*: string
+      ## Source parameter name.
     typ*: string
+      ## Nim type name as captured from the exposed signature.
 
   RpcBindingMetadata* = object
     ## Compile/runtime metadata for an exposed proc.
     name*: string
+      ## JavaScript-visible binding name.
     params*: seq[RpcParamMetadata]
+      ## Ordered parameter metadata for the binding.
     returnType*: string
+      ## Nim return type name, or the awaited value type for `Future[T]`.
     async*: bool
+      ## True when the exposed proc returns a `Future`.
 
   RpcErrorEnvelope* = object
+    ## JSON error payload returned for failed RPC calls.
     message*: string
+      ## Human-readable error message.
     `type`*: string
+      ## Nim exception type name.
 
   RpcErrorResponse* = object
+    ## Top-level JSON error response shape.
     error*: RpcErrorEnvelope
+      ## Structured error details.
 
 var
   registry {.global.}: seq[RpcBinding]
@@ -226,7 +243,7 @@ proc procDefNode(name, ret, body: NimNode; params: seq[(NimNode,
   )
 
 macro expose*(sig: untyped; body: untyped): untyped =
-  ## Define and register a synchronous RPC proc.
+  ## Define and register a synchronous or `Future`-returning RPC proc.
   let parsed = parseExposeSignature(sig)
   let procName = parsed.name
   let procNameStr = $procName

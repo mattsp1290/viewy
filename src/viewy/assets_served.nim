@@ -13,12 +13,17 @@ type
   ServedAsset* = object
     ## One gzip-compressed generated frontend asset.
     path*: string
+      ## Absolute route path for the asset, for example `/index.html`.
     contentType*: string
+      ## HTTP content type returned for this asset.
     gzipBytes*: string
+      ## Gzip-compressed response body bytes.
 
   ServedModeError* = object of CatchableError
+    ## Raised when served asset mode cannot start or serve generated assets.
 
   ServedServer* = ref object
+    ## Running loopback server used by served asset mode.
     server: AsyncHttpServer
     thread: Thread[ServedServer]
     started: Atomic[bool]
