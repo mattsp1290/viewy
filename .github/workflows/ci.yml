@@ -177,6 +177,34 @@ jobs:
           subprocess.run([exe], check=True, timeout=120)
           PY
 
+      - name: Build emit stress windowed test
+        run: nim c --hints:off --mm:orc --threads:on -o:build/test_emit_stress tests/test_emit_stress.nim
+
+      - name: Run emit stress windowed test (xvfb, 120s watchdog)
+        if: runner.os == 'Linux'
+        run: |
+          python - <<'PY'
+          import subprocess
+
+          subprocess.run(
+              ["xvfb-run", "-a", "build/test_emit_stress"],
+              check=True,
+              timeout=120,
+          )
+          PY
+
+      - name: Run emit stress windowed test (120s watchdog)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+
+          exe = "build/test_emit_stress.exe" if os.name == "nt" else "build/test_emit_stress"
+          subprocess.run([exe], check=True, timeout=120)
+          PY
+
       - name: Build release embedded asset windowed test
         run: nim c --hints:off --mm:orc --threads:on -d:release -d:viewyGeneratedAssets --path:tests/fixtures/assets_single -o:build/test_assets_single tests/test_assets_single.nim
 
