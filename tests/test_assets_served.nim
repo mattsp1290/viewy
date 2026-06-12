@@ -63,7 +63,8 @@ doAssert servedAssets[0].gzipBytes == "gz-html"
     let server = startServedServer([
       ServedAsset(path: "/index.html", contentType: "text/html; charset=utf-8",
         gzipBytes: compress("""<!doctype html><script src="/assets/app.js"></script>""")),
-      ServedAsset(path: "/assets/app.js", contentType: "text/javascript; charset=utf-8",
+      ServedAsset(path: "/assets/app.js",
+        contentType: "text/javascript; charset=utf-8",
         gzipBytes: compress("console.log(1)")),
     ])
     defer: server.stop()

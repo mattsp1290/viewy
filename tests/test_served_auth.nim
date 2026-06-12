@@ -32,7 +32,8 @@ suite "served mode auth":
     let server = startServedServer([
       ServedAsset(path: "/index.html", contentType: "text/html; charset=utf-8",
         gzipBytes: compress("""<!doctype html><script src="/assets/app.js"></script>""")),
-      ServedAsset(path: "/assets/app.js", contentType: "text/javascript; charset=utf-8",
+      ServedAsset(path: "/assets/app.js",
+        contentType: "text/javascript; charset=utf-8",
         gzipBytes: compress("console.log(1)")),
     ])
     defer: server.stop()
@@ -54,7 +55,8 @@ suite "served mode auth":
     var unauth = newHttpClient()
     check unauth.request(base & prefixPath & "/assets/app.js").statusCode == 401
     check unauth.request(base & prefixPath & "/__viewy_rpc").statusCode == 401
-    check unauth.request(base & prefixPath & "/__viewy_rpc?" & tokenQuery).statusCode == 401
+    check unauth.request(base & prefixPath & "/__viewy_rpc?" &
+        tokenQuery).statusCode == 401
 
     var client = newHttpClient()
     let document = client.request(server.documentUrl())

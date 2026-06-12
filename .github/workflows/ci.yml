@@ -59,6 +59,9 @@ jobs:
       - name: nim check library root
         run: nim check --hints:off src/viewy.nim
 
+      - name: nim doc library root
+        run: nim doc --hints:off src/viewy.nim
+
       - name: Run dev-mode strdefine test
         run: nim c --hints:off --mm:orc --threads:on -d:viewyDev=http://127.0.0.1:5174 -r tests/test_app_dev.nim
 
@@ -233,6 +236,28 @@ jobs:
           subprocess.run([exe], check=True, timeout=120)
           PY
 
+      - name: Assert hello example line budget
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          line_count = len(Path("examples/hello/src/main.nim").read_text().splitlines())
+          if line_count >= 60:
+              raise SystemExit(f"hello example is {line_count} lines; expected < 60")
+          print(f"hello example line count: {line_count}")
+          PY
+
+      - name: Assert Linux hello release binary size
+        if: runner.os == 'Linux'
+        working-directory: examples/hello
+        run: |
+          python -c "import os; os.makedirs('build', exist_ok=True)"
+          nim c --hints:off -d:release --mm:orc --threads:on -d:strip --opt:size -o:build/hello src/main.nim
+          size=$(stat -c %s build/hello)
+          echo "hello release binary size: ${size} bytes"
+          test "$size" -lt 3145728
+
       - name: Run tests (xvfb)
         if: runner.os == 'Linux'
         run: VIEWY_SKIP_WINDOWED=1 xvfb-run -a nimble test -y
@@ -277,10 +302,8 @@ jobs:
         env:
           VIEWY_LIB_SRC: ${{ github.workspace }}
 
-      # Wired but not yet gating (spec §9): surfaces drift without failing CI.
-      - name: nimpretty (non-gating)
+      - name: nimpretty
         if: runner.os == 'Linux'
-        continue-on-error: true
         run: |
           nimble pretty
           git diff --exit-code

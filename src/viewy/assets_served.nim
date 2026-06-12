@@ -175,7 +175,8 @@ proc handleRequest(s: ServedServer; req: Request): Future[void] {.async, gcsafe.
   var responseBytes = asset.gzipBytes
   if assetPath == s.documentPath and req.reqMethod != HttpHead:
     try:
-      responseBytes = compress(rewriteAbsoluteAssetUrls(uncompress(asset.gzipBytes), s.prefix))
+      responseBytes = compress(rewriteAbsoluteAssetUrls(uncompress(
+          asset.gzipBytes), s.prefix))
     except CatchableError:
       discard
   let content = if req.reqMethod == HttpHead: "" else: responseBytes

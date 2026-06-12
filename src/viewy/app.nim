@@ -47,7 +47,8 @@ proc newApp*(title = "viewy"; width = 1024; height = 768;
     devUrl: devUrl,
   )
 
-proc invokeBinding(app: App; binding: RpcBinding; id, jsonArgs: string) {.gcsafe.} =
+proc invokeBinding(app: App; binding: RpcBinding; id,
+    jsonArgs: string) {.gcsafe.} =
   let backend = app.backend
   let h = app.handle
   var pendingDone = false
@@ -70,7 +71,7 @@ proc bindRpc(app: App) =
     let rpc = binding
     app.backend.bindFn(app.handle, rpc.name,
       proc(id, jsonArgs: string) {.gcsafe.} =
-        invokeBinding(app, rpc, id, jsonArgs)
+      invokeBinding(app, rpc, id, jsonArgs)
     )
 
 proc run*(app: App) =
