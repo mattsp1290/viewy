@@ -4001,6 +4001,11 @@ public:
   }
 
   virtual ~win32_edge_engine() {
+    if (m_controller) {
+      // Close the WebView2 controller before releasing COM references so the
+      // runtime can finish browser teardown before the host window is destroyed.
+      m_controller->Close();
+    }
     if (m_com_handler) {
       m_com_handler->Release();
       m_com_handler = nullptr;
