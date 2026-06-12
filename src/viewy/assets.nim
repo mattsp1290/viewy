@@ -27,6 +27,8 @@ type
   AssetMode* = enum
     ## Load a self-contained HTML document directly with the backend.
     assetsEmbedded
+    ## Serve generated assets from a loopback-only authenticated HTTP server.
+    assetsServedMode
     ## Navigate to a development server URL.
     assetsDevServer
 
@@ -35,6 +37,11 @@ const
   generatedEmbeddedHtmlSymbol* = "viewyEmbeddedHtml"
   fallbackEmbeddedHtml* = "<!doctype html><meta charset=\"utf-8\"><div id=\"app\"></div>"
   defaultEmbeddedHtml* = fallbackEmbeddedHtml
+  defaultAssetMode* =
+    when defined(viewyGeneratedServedAssets):
+      assetsServedMode
+    else:
+      assetsEmbedded
   viewyDevUrl* {.strdefine: "viewyDev".} = "http://localhost:5173"
     ## Development server URL selected by `-d:viewyDev=<url>`.
 

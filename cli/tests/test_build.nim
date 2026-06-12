@@ -21,6 +21,46 @@ suite "viewy build":
     finally:
       removeDir(dir)
 
+  test "generates served assets table with gzip sidecars":
+    let dir = createTempDir("viewy-assets-served-gen", "")
+    try:
+      createDir(dir / "src")
+      createDir(dir / "frontend" / "dist" / "assets")
+      writeFile(dir / "frontend" / "dist" / "index.html", "<!doctype html>")
+      writeFile(dir / "frontend" / "dist" / "assets" / "app.js", "console.log(1)")
+
+      let outPath = dir / "src" / "viewy_assets.nim"
+      generateServedAssets(dir / "frontend" / "dist", outPath)
+
+      let generated = readFile(outPath)
+      check generated.contains("const viewyServedDocumentPath* = \"/index.html\"")
+      check generated.contains("path: \"/index.html\"")
+      check generated.contains("path: \"/assets/app.js\"")
+      check generated.contains("gzipBytes: staticRead(")
+      check dirExists(dir / "src" / "viewy_assets_served")
+    finally:
+      removeDir(dir)
+
+  test "served asset sidecars do not collide for similar paths":
+    let dir = createTempDir("viewy-assets-served-collisions", "")
+    try:
+      createDir(dir / "src")
+      createDir(dir / "frontend" / "dist" / "assets" / "a")
+      writeFile(dir / "frontend" / "dist" / "index.html", "<!doctype html>")
+      writeFile(dir / "frontend" / "dist" / "assets" / "a" / "b.js", "one")
+      writeFile(dir / "frontend" / "dist" / "assets" / "a_b.js", "two")
+
+      let outPath = dir / "src" / "viewy_assets.nim"
+      generateServedAssets(dir / "frontend" / "dist", outPath)
+
+      var gzipCount = 0
+      for file in walkDirRec(dir / "src" / "viewy_assets_served"):
+        if fileExists(file):
+          inc gzipCount
+      check gzipCount == 3
+    finally:
+      removeDir(dir)
+
   test "runs frontend build, generates assets, compiles binary, and reports size":
     let dir = createTempDir("viewy-build", "")
     var calls: seq[tuple[command, workingDir: string]]
@@ -68,9 +108,16 @@ suite "viewy build":
     finally:
       removeDir(dir)
 
-  test "rejects unsupported served asset mode":
-    expect BuildError:
-      discard buildApp(ViewyConfig(
+  test "build supports served asset mode":
+    let dir = createTempDir("viewy-build-served", "")
+    var calls: seq[tuple[command, workingDir: string]]
+    try:
+      createDir(dir / "src")
+      createDir(dir / "frontend" / "dist")
+      writeFile(dir / "src" / "main.nim", "echo \"hello\"\n")
+      writeFile(dir / "frontend" / "dist" / "index.html", "<!doctype html>")
+
+      let cfg = ViewyConfig(
         name: "demo",
         title: "Demo",
         width: 800,
@@ -80,7 +127,27 @@ suite "viewy build":
         devUrl: "http://127.0.0.1:5173",
         frontendDir: "frontend",
         nimMain: "src/main.nim"
-      ))
+      )
+
+      proc fakeExec(command, workingDir: string): tuple[output: string; exitCode: int] =
+        calls.add (command, workingDir)
+        if command.startsWith("nim c "):
+          createDir(dir / "build")
+          when defined(windows):
+            writeFile(dir / "build" / "demo.exe", "binary")
+          else:
+            writeFile(dir / "build" / "demo", "binary")
+        ("", 0)
+
+      let output = buildApp(cfg, projectDir = dir, exec = fakeExec)
+
+      check output.contains("Built binary:")
+      check calls[1].command.contains("-d:viewyGeneratedServedAssets")
+      check not calls[1].command.contains("-d:viewyGeneratedAssets")
+      check fileExists(dir / "src" / "viewy_assets.nim")
+      check dirExists(dir / "src" / "viewy_assets_served")
+    finally:
+      removeDir(dir)
 
   test "reports invalid explicit viewy library source before compile":
     let dir = createTempDir("viewy-build-missing-lib", "")

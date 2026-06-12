@@ -105,9 +105,6 @@ proc emitMacBundle(cfg: ViewyConfig; binaryPath, buildDir: string): string =
 proc buildApp*(cfg: ViewyConfig; release = false; projectDir = ".";
     exec: ExecProc = defaultExec): string =
   ## Build the configured app and return a human-readable summary.
-  if cfg.assets != amSingle:
-    raise buildError("viewy build currently supports only single-file assets")
-
   let root = absolutePath(projectDir)
   let frontendDir = root / cfg.frontendDir
   let nimMain = root / cfg.nimMain
@@ -123,11 +120,19 @@ proc buildApp*(cfg: ViewyConfig; release = false; projectDir = ".";
     raise buildError("nimMain not found: " & nimMain)
 
   exec.checked("npm run build", frontendDir)
-  generateSingleFileAssets(distIndex, generatedAssets)
+  case cfg.assets
+  of amSingle:
+    generateSingleFileAssets(distIndex, generatedAssets)
+  of amServed:
+    generateServedAssets(frontendDir / "dist", generatedAssets)
 
   createDir(buildDir)
-  var nimCmd = "nim c --mm:orc --threads:on -d:viewyGeneratedAssets --path:" &
-    quote(nimSrcDir)
+  var nimCmd = "nim c --mm:orc --threads:on --path:" & quote(nimSrcDir)
+  case cfg.assets
+  of amSingle:
+    nimCmd.add " -d:viewyGeneratedAssets"
+  of amServed:
+    nimCmd.add " -d:viewyGeneratedServedAssets"
   let libPath = viewyLibPath()
   if libPath.len > 0:
     nimCmd.add " --path:" & quote(libPath)
