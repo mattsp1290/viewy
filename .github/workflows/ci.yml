@@ -233,6 +233,22 @@ jobs:
         env:
           VIEWY_LIB_SRC: ${{ github.workspace }}
 
+      - name: Run CLI dev loop test (xvfb)
+        if: runner.os == 'Linux'
+        working-directory: cli
+        run: |
+          python - <<'PY'
+          import subprocess
+
+          subprocess.run(
+              ["xvfb-run", "-a", "nim", "c", "--path:src", "-r", "tests/test_devloop.nim"],
+              check=True,
+              timeout=300,
+          )
+          PY
+        env:
+          VIEWY_LIB_SRC: ${{ github.workspace }}
+
       # Wired but not yet gating (spec §9): surfaces drift without failing CI.
       - name: nimpretty (non-gating)
         if: runner.os == 'Linux'
