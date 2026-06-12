@@ -7,6 +7,8 @@ import viewy/backend/api
 import viewy/backend/wv/backend
 import viewy/rpc
 import viewy/runtime_js
+from viewy/assets_served import ServedServer, documentUrl,
+    startGeneratedServedServer, stop
 
 type
   App* = ref object
@@ -23,7 +25,7 @@ type
     devUrl: string
 
 proc newApp*(title = "viewy"; width = 1024; height = 768;
-    resizable = true; assets = assetsEmbedded; html = defaultEmbeddedHtml;
+    resizable = true; assets = defaultAssetMode; html = defaultEmbeddedHtml;
     devUrl = "http://localhost:5173"; debug = false;
     backend = newBackend()): App =
   ## Create an app configuration.
@@ -78,8 +80,13 @@ proc run*(app: App) =
   ## before page scripts run, registers every proc exposed through
   ## `viewy/rpc.expose`, loads content, and always destroys the backend handle
   ## after `run` returns or raises.
-  app.handle = app.backend.create(app.debug)
+  var servedServer: ServedServer
+  when not defined(viewyDev):
+    if app.assets == assetsServedMode:
+      servedServer = startGeneratedServedServer()
+
   try:
+    app.handle = app.backend.create(app.debug)
     app.backend.setTitle(app.handle, app.title)
     let hints = if app.resizable: whNone else: whFixed
     app.backend.setSize(app.handle, app.width, app.height, hints)
@@ -91,13 +98,18 @@ proc run*(app: App) =
       case app.assets
       of assetsDevServer:
         app.backend.navigate(app.handle, app.devUrl)
+      of assetsServedMode:
+        app.backend.navigate(app.handle, servedServer.documentUrl())
       of assetsEmbedded:
         let html = if app.html == defaultEmbeddedHtml: embeddedHtml() else: app.html
         app.backend.setHtml(app.handle, html)
     app.backend.run(app.handle)
   finally:
-    app.backend.destroy(app.handle)
-    app.handle = nil
+    if app.handle != nil:
+      app.backend.destroy(app.handle)
+      app.handle = nil
+    when not defined(viewyDev):
+      servedServer.stop()
 
 proc backend*(app: App): Backend =
   ## Return the backend vtable used by this app.

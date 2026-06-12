@@ -9,6 +9,7 @@ bin           = @["viewy"]
 
 requires "nim >= 2.0.0"
 requires "jsony == 1.1.6"
+requires "zippy == 0.10.19"
 
 task test, "Run the CLI test suite":
   exec "nim c --path:src -r tests/test_build.nim"
