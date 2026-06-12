@@ -24,4 +24,3 @@ else:
   b.destroy(h)
 
   echo "ok: webview handoff"
-  quit(QuitSuccess)

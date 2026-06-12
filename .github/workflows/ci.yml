@@ -180,6 +180,34 @@ jobs:
           subprocess.run([exe], check=True, timeout=120)
           PY
 
+      - name: Build teardown windowed test
+        run: nim c --hints:off --mm:orc --threads:on -o:build/test_wv_teardown tests/test_wv_teardown.nim
+
+      - name: Run teardown windowed test (xvfb, 120s watchdog)
+        if: runner.os == 'Linux'
+        run: |
+          python - <<'PY'
+          import subprocess
+
+          subprocess.run(
+              ["xvfb-run", "-a", "build/test_wv_teardown"],
+              check=True,
+              timeout=120,
+          )
+          PY
+
+      - name: Run teardown windowed test (120s watchdog)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+
+          exe = "build/test_wv_teardown.exe" if os.name == "nt" else "build/test_wv_teardown"
+          subprocess.run([exe], check=True, timeout=120)
+          PY
+
       - name: Build emit stress windowed test
         run: nim c --hints:off --mm:orc --threads:on -o:build/test_emit_stress tests/test_emit_stress.nim
 
