@@ -247,7 +247,7 @@ jobs:
           PY
 
       - name: Run emit stress windowed test (120s watchdog)
-        if: runner.os != 'Linux' && matrix.compiler != 'vcc'
+        if: runner.os != 'Linux'
         shell: bash
         run: |
           python - <<'PY'

@@ -23,6 +23,7 @@ var
   windowHandle {.global.}: BackendHandle
   reportSeen {.global.}: bool
   reportJson {.global.}: string
+  doneSeen {.global.}: bool
   started {.global.}: bool
   threads {.global.}: array[workerCount, Thread[WorkerArgs]]
   args {.global.}: array[workerCount, WorkerArgs]
@@ -42,6 +43,12 @@ proc reportCallback(id, jsonArgs: string) {.gcsafe.} =
     else:
       dispatchResolve(windowHandle, id, false,
         """{"error":{"message":"ValueError","type":"ValueError"}}""")
+
+proc doneCallback(id, jsonArgs: string) {.gcsafe.} =
+  {.cast(gcsafe).}:
+    discard id
+    discard jsonArgs
+    doneSeen = true
     dispatchTerminate(windowHandle)
 
 proc readyCallback(id, jsonArgs: string) {.gcsafe.} =
@@ -62,12 +69,14 @@ else:
   windowHandle = h
   reportSeen = false
   reportJson = ""
+  doneSeen = false
   started = false
 
   appBackend.setTitle(h, "viewy emit stress")
   appBackend.init(h, viewyRuntimeJs)
   appBackend.bindFn(h, "ready", readyCallback)
   appBackend.bindFn(h, "report", reportCallback)
+  appBackend.bindFn(h, "done", doneCallback)
   appBackend.setHtml(h, fmt"""
 <!doctype html>
 <meta charset="utf-8">
@@ -83,7 +92,11 @@ else:
   function finish(report) {{
     if (settled) return;
     settled = true;
-    window.report(JSON.stringify(report));
+    Promise.resolve(window.report(JSON.stringify(report))).then(function () {{
+      window.done();
+    }}, function () {{
+      window.done();
+    }});
   }}
 
   setTimeout(function () {{
@@ -148,6 +161,7 @@ else:
   appBackend.destroy(h)
 
   doAssert reportSeen
+  doAssert doneSeen
   let report = parseJson(reportJson)
   doAssert report["ok"].getBool
   doAssert report["count"].getInt == expectedEvents

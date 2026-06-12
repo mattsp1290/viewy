@@ -1,8 +1,9 @@
 ## Unmanaged cross-thread payload handoff for the webview backend.
 
-import std/locks
-
 import ./ffi
+
+proc cMalloc(size: csize_t): pointer {.importc: "malloc", header: "<stdlib.h>".}
+proc cFree(p: pointer) {.importc: "free", header: "<stdlib.h>".}
 
 type
   WvHandoffError* = object of CatchableError
@@ -23,34 +24,23 @@ type
     a: SharedBytes
     b: SharedBytes
 
-var allocLock {.global.}: Lock
+proc alloc0(size: Natural): pointer =
+  result = cMalloc(csize_t(size))
+  if result != nil:
+    zeroMem(result, size)
 
-initLock(allocLock)
-
-proc allocShared0Locked(size: Natural): pointer =
-  acquire(allocLock)
-  try:
-    result = allocShared0(size)
-  finally:
-    release(allocLock)
-
-proc deallocSharedLocked(p: pointer) {.gcsafe.} =
-  acquire(allocLock)
-  try:
-    deallocShared(p)
-  finally:
-    release(allocLock)
+proc dealloc(p: pointer) {.gcsafe.} =
+  cFree(p)
 
 proc free(bytes: var SharedBytes) {.gcsafe.} =
   if bytes.data != nil:
-    deallocSharedLocked(bytes.data)
+    dealloc(bytes.data)
     bytes.data = nil
   bytes.len = 0
 
 proc initSharedBytes(value: string): SharedBytes =
   result.len = value.len
-  result.data = cast[ptr UncheckedArray[char]](allocShared0Locked(
-      value.len + 1))
+  result.data = cast[ptr UncheckedArray[char]](alloc0(value.len + 1))
   if result.data == nil:
     raise newException(WvHandoffError, "viewy handoff allocation failed")
   if value.len > 0:
@@ -65,11 +55,11 @@ proc freePayload(payload: ptr HandoffPayload) {.gcsafe.} =
   if payload != nil:
     payload.a.free()
     payload.b.free()
-    deallocSharedLocked(payload)
+    dealloc(payload)
 
 proc newPayload(kind: HandoffKind; a: string; b = "";
     ok = false): ptr HandoffPayload =
-  result = cast[ptr HandoffPayload](allocShared0Locked(sizeof(HandoffPayload)))
+  result = cast[ptr HandoffPayload](alloc0(sizeof(HandoffPayload)))
   if result == nil:
     raise newException(WvHandoffError, "viewy handoff allocation failed")
 
