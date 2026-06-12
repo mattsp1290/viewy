@@ -93,6 +93,34 @@ jobs:
           subprocess.run([exe], check=True, timeout=120)
           PY
 
+      - name: Build windowed runtime RPC test
+        run: nim c --hints:off --mm:orc --threads:on -o:build/test_windowed tests/test_windowed.nim
+
+      - name: Run windowed runtime RPC test (xvfb, 120s watchdog)
+        if: runner.os == 'Linux'
+        run: |
+          python - <<'PY'
+          import subprocess
+
+          subprocess.run(
+              ["xvfb-run", "-a", "build/test_windowed"],
+              check=True,
+              timeout=120,
+          )
+          PY
+
+      - name: Run windowed runtime RPC test (120s watchdog)
+        if: runner.os != 'Linux'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+
+          exe = "build/test_windowed.exe" if os.name == "nt" else "build/test_windowed"
+          subprocess.run([exe], check=True, timeout=120)
+          PY
+
       - name: Build async RPC windowed test
         run: nim c --hints:off --mm:orc --threads:on -o:build/test_async_rpc tests/test_async_rpc.nim
 
