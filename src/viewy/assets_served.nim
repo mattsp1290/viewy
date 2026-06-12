@@ -119,7 +119,7 @@ proc routeAssetPath(s: ServedServer; requestPath: string): string =
     return s.documentPath
   if requestPath.startsWith(base & "/"):
     return normalizeAssetPath(requestPath[(base.len + 1) .. ^1])
-  normalizeAssetPath(requestPath)
+  ""
 
 proc isDocumentRoute(s: ServedServer; requestPath, assetPath: string): bool =
   let base = "/" & s.prefix
@@ -148,6 +148,9 @@ proc handleRequest(s: ServedServer; req: Request): Future[void] {.async, gcsafe.
     return
 
   let assetPath = s.routeAssetPath(req.url.path)
+  if assetPath.len == 0:
+    await req.respondText(Http401, "unauthorized")
+    return
   var setCookie = ""
   if s.isDocumentRoute(req.url.path, assetPath) and not hasSession:
     let token = findQueryParam(req.url.query, "viewy_token")
