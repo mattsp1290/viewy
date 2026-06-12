@@ -20,7 +20,8 @@ when defined(nimcheck):
 elif defined(linux):
   import std/strutils
 
-  proc pkgConfig(package: string): tuple[ok: bool; cflags, libs: string] {.compileTime.} =
+  proc pkgConfig(package: string): tuple[ok: bool; cflags,
+      libs: string] {.compileTime.} =
     let cflags = gorge("pkg-config --cflags " & package).strip()
     if cflags.len == 0:
       return (false, "", "")
