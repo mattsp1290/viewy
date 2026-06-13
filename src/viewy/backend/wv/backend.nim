@@ -321,6 +321,7 @@ proc newBackend*(): Backend =
     dispatch: dispatch,
     dispatchEval: dispatchEval,
     dispatchResolve: dispatchResolve,
+    dispatchTerminate: dispatchTerminate,
     setTitle: setTitle,
     setSize: setSize,
     navigate: navigate,
@@ -330,4 +331,5 @@ proc newBackend*(): Backend =
     bindFn: bindFn,
     unbind: unbind,
     resolve: resolve,
+    caps: {},
   )
