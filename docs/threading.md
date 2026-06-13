@@ -17,14 +17,18 @@ This document refines the spec section 4.6 rule:
 Use a small backend-local handoff layer built on C-heap owned payloads:
 
 1. The caller serializes the operation into plain bytes on its current thread.
-2. The handoff layer allocates the `HandoffPayload` object and each non-empty
-   byte buffer with `allocShared`.
+2. The handoff layer allocates the `HandoffPayload` object and each byte buffer
+   with `malloc`, including a trailing NUL byte, and zero-initializes the
+   allocation.
 3. The payload is passed to `webview_dispatch` with a top-level static callback.
 4. The UI-thread callback copies bytes into UI-thread Nim strings, performs the
-   backend operation, and releases the unmanaged payload with `deallocShared`.
+   backend operation, and releases the unmanaged payload with `free`.
 
-No new dependency is required. The mechanism uses only Nim stdlib memory
-allocation plus the already-vendored `webview_dispatch` API.
+No new package dependency is required. The mechanism uses the platform C runtime
+allocator plus the already-vendored `webview_dispatch` API. The C heap is used
+instead of Nim's shared allocator because Windows stress testing exposed
+allocator crashes when many accepted webview dispatch callbacks freed shared
+payloads.
 
 Channels or `isolate` are deliberately not the first implementation. They can be
 added later if the public API needs a general-purpose cross-thread queue, but
@@ -34,11 +38,8 @@ for stress tests and shutdown paths.
 
 ## Payload shape
 
-The implementation bead should place this in `src/viewy/backend/wv/handoff.nim`
-or the dispatch section of `src/viewy/backend/wv/backend.nim`.
-
 The unmanaged payload should be a tiny tagged object. Allocate
-`HandoffPayload` itself with `allocShared`; `webview_dispatch` receives only
+`HandoffPayload` itself with the C heap helper; `webview_dispatch` receives only
 that unmanaged pointer.
 
 ```nim
@@ -59,15 +60,15 @@ type
     b: SharedBytes
 ```
 
-`SharedBytes` owns a NUL-terminated byte copy allocated with `allocShared`.
+`SharedBytes` owns a NUL-terminated byte copy allocated with the C heap helper.
 `a` and `b` are interpreted by `kind`:
 
 - `hkEval`: `a` is the complete JavaScript source to pass to `webview_eval`;
   `b` is empty.
 - `hkResolve`: `a` is the webview bind request id; `b` is the JSON result; `ok`
   maps to `webview_return` status `0` or `1`.
-- `hkTerminate`: no byte fields are required; the callback requests native
-  termination on the UI thread.
+- `hkTerminate`: no semantic byte fields are required; the current helper still
+  carries empty C-heap byte buffers that are freed by the same ownership path.
 
 The C callback passed to `webview_dispatch` must be a top-level proc with the C
 signature from `ffi.nim`, not a closure:
@@ -78,7 +79,7 @@ proc runHandoff(w: Webview; arg: pointer) {.cdecl, gcsafe.}
 
 It casts `arg` to `ptr HandoffPayload`, copies the byte fields into local Nim
 strings on the UI thread, runs the requested operation, then frees every
-`allocShared` allocation exactly once.
+C-heap allocation exactly once.
 
 ## Emit path
 
@@ -140,8 +141,9 @@ app wiring should arrange an equivalent pump around the blocking backend
 
 - The caller owns all Nim-managed strings and values before calling the handoff
   helper.
-- The handoff helper copies all bytes into `allocShared` storage before calling
-  `webview_dispatch`.
+- The handoff helper copies all bytes into C-heap storage before calling
+  `webview_dispatch`. The payload must contain only plain fields and pointers to
+  unmanaged byte buffers.
 - If allocation fails, the helper raises or returns an error before dispatching.
 - If `webview_dispatch` returns a non-success status synchronously, according to
   the FFI wrapper's webview error convention, the helper frees the payload
