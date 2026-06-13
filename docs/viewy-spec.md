@@ -120,10 +120,11 @@ app.run()
 
 ### 4.5 Asset strategy (`assets.nim`) — important, this is the subtle part
 
-`webview/webview` has **no custom scheme handler** (unlike wry/WKURLSchemeHandler). Options ranked; implement A as default, B behind a flag:
+`webview/webview` has **no custom scheme handler** (unlike wry/WKURLSchemeHandler). Current options are:
 
-- **A. Single-file injection (default, zero ports):** Production builds require the frontend to emit one self-contained `index.html` (CSS/JS inlined). The scaffold templates use `vite-plugin-singlefile`. The CLI build step embeds it via `staticRead` (through a generated `viewy_assets.nim`) and calls `setHtml`. No sockets, no temp files. Matches Wails' "no network ports" property. Limitation: very large apps and `fetch()` of relative assets need B.
-- **B. Loopback micro-server (flag `assets = Served`):** Embed all of `dist/` into the binary (compile-time table: path → bytes, gzip-compressed with `zippy`). At startup, bind an `std/asynchttpdispatch`-based or hand-rolled HTTP/1.1 server on `127.0.0.1:0` (ephemeral port), require a per-launch random bearer token in a cookie set via injected JS, navigate the webview to it. Document the tradeoff honestly.
+- **Scheme assets (default):** Production builds emit a generated `dist/` asset table (`assets = "scheme"`). Native backends will load it through a custom scheme; the lite backend consumes the same table through the loopback served fallback until native scheme support lands.
+- **Single-file injection (legacy `assets = "single"`):** Production builds require the frontend to emit one self-contained `index.html` (CSS/JS inlined). The CLI build step embeds it via `staticRead` (through a generated `viewy_assets.nim`) and calls `setHtml`. No sockets, no temp files. Limitation: very large apps and `fetch()` of relative assets need scheme or served mode.
+- **Loopback micro-server (legacy `assets = "served"`):** Embed all of `dist/` into the binary (compile-time table: path → bytes, gzip-compressed with `zippy`). At startup, bind an HTTP server on `127.0.0.1:0` (ephemeral port), require per-launch credentials, and navigate the webview to it. Document the tradeoff honestly.
 - **Dev mode:** neither — `navigate(devServerUrl)` (Vite, default `http://localhost:5173`), enabled by compiling with `-d:viewyDev=http://localhost:5173`.
 
 ### 4.6 Threading rules
@@ -145,7 +146,7 @@ Separate nimble package `viewy_cli` (or same repo, `bin = @["viewy"]`). Dependen
     frontend/           # vite project (template-specific)
     .gitignore
   ```
-- Templates vendored in the CLI repo under `templates/` and copied (no network fetch). Each template's `vite.config` includes `vite-plugin-singlefile` for the prod build. Start with `vanilla`; svelte/react are stamped variants — implement vanilla first, others in Phase 3.
+- Templates vendored in the CLI repo under `templates/` and copied (no network fetch). Current templates keep their existing Vite setup while `viewy.json` defaults to `assets = "scheme"`; a later migration removes the single-file plugin requirement. Start with `vanilla`; svelte/react are stamped variants.
 
 ### `viewy dev`
 - Spawns `npm run dev` (Vite) in `frontend/`, waits for the port to accept connections.

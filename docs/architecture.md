@@ -126,19 +126,20 @@ envelopes and metadata schema are documented in [protocol.md](protocol.md).
 
 ## Asset Modes
 
-viewy has three content loading modes:
+viewy has four content loading modes:
 
 - Scheme mode is the default production asset mode in new `viewy.json` files.
-  It builds a generated multi-file asset table. Until native backends implement
+  It builds a generated `dist/` asset table. Until native backends implement
   custom scheme loading, the lite backend consumes that table through the same
   loopback served-mode fallback as served mode.
 - Embedded mode is the legacy `assets = "single"` production path. The CLI
   builds a single-file frontend document and generates a Nim module whose
   `staticRead` content is loaded with `setHtml`.
-- Served mode is the legacy `assets = "served"` production path for apps that need separate static
-  assets or URL-addressed generated files. It embeds gzip-compressed assets,
-  starts a `127.0.0.1:0` HTTP server with per-launch credentials, and navigates
-  the webview to the generated document URL. See [served-mode.md](served-mode.md).
+- Served mode is the legacy `assets = "served"` production path for apps that
+  need separate static assets or URL-addressed generated files. It embeds
+  gzip-compressed assets, starts a `127.0.0.1:0` HTTP server with per-launch
+  credentials, and navigates the webview to the generated document URL. See
+  [served-mode.md](served-mode.md).
 - Dev mode is selected with `-d:viewyDev=<url>`. The app navigates directly to
   the frontend dev server, normally Vite, so HMR stays in the frontend toolchain.
 

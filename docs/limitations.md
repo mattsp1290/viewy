@@ -28,7 +28,7 @@ for that.
 ## Asset Modes
 
 Scheme mode is the default asset value for new `viewy.json` files. It generates
-a multi-file embedded asset table. The current lite backend cannot register a
+an embedded `dist/` asset table. The current lite backend cannot register a
 native custom scheme yet, so scheme mode uses the served-mode loopback fallback
 until native backends land.
 
