@@ -70,12 +70,12 @@ let fakeBackend = Backend(
   create: fakeCreate,
   dispatchTerminate: fakeDispatchTerminate,
   caps: {capScheme, capMenu, capTray, capWindowEvents},
-  registerScheme: fakeRegisterScheme,
-  setAppMenu: fakeSetAppMenu,
-  trayCreate: fakeTrayCreate,
-  trayUpdate: fakeTrayUpdate,
-  trayDestroy: fakeTrayDestroy,
-  onWindowEvent: fakeOnWindowEvent,
+  registerSchemeImpl: fakeRegisterScheme,
+  setAppMenuImpl: fakeSetAppMenu,
+  trayCreateImpl: fakeTrayCreate,
+  trayUpdateImpl: fakeTrayUpdate,
+  trayDestroyImpl: fakeTrayDestroy,
+  onWindowEventImpl: fakeOnWindowEvent,
 )
 
 let h = fakeBackend.create(false)
@@ -146,19 +146,30 @@ var missingSchemeCapBackend = fakeBackend
 missingSchemeCapBackend.caps = {}
 var runtimeCapAsserted = false
 try:
-  registerScheme(missingSchemeCapBackend, h, "viewy", handleAsset)
+  missingSchemeCapBackend.registerScheme(h, "viewy", handleAsset)
 except AssertionDefect:
   runtimeCapAsserted = true
 doAssert runtimeCapAsserted
 
+let incompleteTrayBackend = Backend(
+  caps: {capTray},
+  trayCreateImpl: fakeTrayCreate,
+)
+var incompleteTrayAsserted = false
+try:
+  incompleteTrayBackend.trayCreate(h, tray, handleTray)
+except AssertionDefect:
+  incompleteTrayAsserted = true
+doAssert incompleteTrayAsserted
+
 doAssert capScheme in fakeBackend.caps
 doAssert fakeBackend.dispatchTerminate != nil
-doAssert fakeBackend.registerScheme != nil
-doAssert fakeBackend.setAppMenu != nil
-doAssert fakeBackend.trayCreate != nil
-doAssert fakeBackend.trayUpdate != nil
-doAssert fakeBackend.trayDestroy != nil
-doAssert fakeBackend.onWindowEvent != nil
+doAssert fakeBackend.registerSchemeImpl != nil
+doAssert fakeBackend.setAppMenuImpl != nil
+doAssert fakeBackend.trayCreateImpl != nil
+doAssert fakeBackend.trayUpdateImpl != nil
+doAssert fakeBackend.trayDestroyImpl != nil
+doAssert fakeBackend.onWindowEventImpl != nil
 doAssert terminated
 doAssert schemeSeen == "viewy"
 doAssert assetPathSeen == "/index.html"
@@ -169,15 +180,23 @@ doAssert windowEvents == @[weResize]
 let liteBackend = newBackend()
 doAssert liteBackend.caps == {}
 doAssert liteBackend.dispatchTerminate != nil
-doAssert liteBackend.registerScheme == nil
-doAssert liteBackend.setAppMenu == nil
-doAssert liteBackend.trayCreate == nil
-doAssert liteBackend.trayUpdate == nil
-doAssert liteBackend.trayDestroy == nil
-doAssert liteBackend.onWindowEvent == nil
+doAssert liteBackend.registerSchemeImpl == nil
+doAssert liteBackend.setAppMenuImpl == nil
+doAssert liteBackend.trayCreateImpl == nil
+doAssert liteBackend.trayUpdateImpl == nil
+doAssert liteBackend.trayDestroyImpl == nil
+doAssert liteBackend.onWindowEventImpl == nil
 
-let capGateProbe = getTempDir() / "viewy_cap_gate_lite_fail.nim"
-writeFile(capGateProbe, """
+proc assertLiteCapGate(name, source, expected: string) =
+  let probe = getTempDir() / ("viewy_cap_gate_" & name & ".nim")
+  writeFile(probe, source)
+  let (output, code) = execCmdEx(
+    "nim check --path:src -d:viewyBackend=lite " & probe)
+  removeFile(probe)
+  doAssert code != 0
+  doAssert output.contains(expected)
+
+assertLiteCapGate("scheme_fail", """
 import viewy/backend/api
 
 proc handleAsset(request: AssetRequest): AssetResponse {.gcsafe.} =
@@ -185,16 +204,38 @@ proc handleAsset(request: AssetRequest): AssetResponse {.gcsafe.} =
 
 let backend = Backend(
   caps: {capScheme},
-  registerScheme: proc(h: BackendHandle; scheme: string;
+  registerSchemeImpl: proc(h: BackendHandle; scheme: string;
       handler: AssetHandler) = discard,
 )
 
-registerScheme(backend, nil, "viewy", handleAsset)
-""")
-let (capGateOutput, capGateCode) = execCmdEx(
-  "nim check --path:src -d:viewyBackend=lite " & capGateProbe)
-removeFile(capGateProbe)
-doAssert capGateCode != 0
-doAssert capGateOutput.contains("registerScheme requires a backend capability")
+backend.registerScheme(nil, "viewy", handleAsset)
+""", "registerScheme requires a backend capability")
+
+assertLiteCapGate("menu_fail", """
+import viewy/backend/api
+
+let backend = Backend(
+  caps: {capMenu},
+  setAppMenuImpl: proc(h: BackendHandle; menu: seq[MenuItem];
+      cb: MenuCallback) = discard,
+)
+
+backend.setAppMenu(nil, @[], proc(id: string) = discard)
+""", "setAppMenu requires a backend capability")
+
+assertLiteCapGate("tray_fail", """
+import viewy/backend/api
+
+let backend = Backend(
+  caps: {capTray},
+  trayCreateImpl: proc(h: BackendHandle; options: TrayOptions;
+      cb: MenuCallback) = discard,
+  trayUpdateImpl: proc(h: BackendHandle; id: string;
+      options: TrayOptions) = discard,
+  trayDestroyImpl: proc(h: BackendHandle; id: string) = discard,
+)
+
+backend.trayCreate(nil, TrayOptions(id: "main"), proc(id: string) = discard)
+""", "trayCreate requires a backend capability")
 
 echo "ok: backend v2 api types and slots"

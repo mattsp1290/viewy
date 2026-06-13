@@ -180,32 +180,32 @@ type
       ## Optional features implemented by this backend. Any advertised
       ## capability requires its matching vtable slot or slots to be non-nil.
 
-    registerScheme*: proc(h: BackendHandle; scheme: string;
+    registerSchemeImpl*: proc(h: BackendHandle; scheme: string;
         handler: AssetHandler) {.closure.}
       ## Main thread only. Register a custom asset scheme handler for a handle.
       ## The backend invokes `handler` later on the backend UI thread only, with
       ## request payloads copied into Nim-owned values before invocation.
 
-    setAppMenu*: proc(h: BackendHandle; menu: seq[MenuItem];
+    setAppMenuImpl*: proc(h: BackendHandle; menu: seq[MenuItem];
         cb: MenuCallback) {.closure.}
       ## Main thread only. Install or replace the app/window menu.
       ## The backend invokes `cb` later on the backend UI thread only, with the
       ## dispatched item id copied into a Nim-owned string before invocation.
 
-    trayCreate*: proc(h: BackendHandle; options: TrayOptions;
+    trayCreateImpl*: proc(h: BackendHandle; options: TrayOptions;
         cb: MenuCallback) {.closure.}
       ## Main thread only. Create a native tray item for this backend handle.
       ## The backend invokes `cb` later on the backend UI thread only, with the
       ## dispatched item id copied into a Nim-owned string before invocation.
 
-    trayUpdate*: proc(h: BackendHandle; id: string;
+    trayUpdateImpl*: proc(h: BackendHandle; id: string;
         options: TrayOptions) {.closure.}
       ## Main thread only. Update an existing native tray item.
 
-    trayDestroy*: proc(h: BackendHandle; id: string) {.closure.}
+    trayDestroyImpl*: proc(h: BackendHandle; id: string) {.closure.}
       ## Main thread only. Destroy an existing native tray item.
 
-    onWindowEvent*: proc(h: BackendHandle;
+    onWindowEventImpl*: proc(h: BackendHandle;
         cb: WindowEventCallback) {.closure.}
       ## Main thread only. Subscribe to native window lifecycle events.
       ## The backend invokes `cb` later on the backend UI thread only. Native
@@ -233,50 +233,58 @@ template requireSelectedBackendCap*(cap: static[Capability];
 proc requireBackendCap*(backend: Backend; cap: Capability; operation: string) =
   doAssert cap in backend.caps,
       operation & " requires a backend capability that this backend does not provide"
+  case cap
+  of capScheme:
+    doAssert backend.registerSchemeImpl != nil,
+        "capScheme requires a registerScheme vtable slot"
+  of capMenu:
+    doAssert backend.setAppMenuImpl != nil,
+        "capMenu requires a setAppMenu vtable slot"
+  of capTray:
+    doAssert backend.trayCreateImpl != nil and backend.trayUpdateImpl != nil and
+        backend.trayDestroyImpl != nil,
+        "capTray requires trayCreate, trayUpdate, and trayDestroy vtable slots"
+  of capWindowEvents:
+    doAssert backend.onWindowEventImpl != nil,
+        "capWindowEvents requires an onWindowEvent vtable slot"
 
 template registerScheme*(backend: Backend; h: BackendHandle; scheme: string;
     handler: AssetHandler) =
   requireSelectedBackendCap(capScheme, "registerScheme")
-  requireBackendCap(backend, capScheme, "registerScheme")
-  doAssert backend.registerScheme != nil,
-      "registerScheme capability requires a registerScheme vtable slot"
-  backend.registerScheme(h, scheme, handler)
+  let b = backend
+  requireBackendCap(b, capScheme, "registerScheme")
+  b.registerSchemeImpl(h, scheme, handler)
 
 template setAppMenu*(backend: Backend; h: BackendHandle; menu: seq[MenuItem];
     cb: MenuCallback) =
   requireSelectedBackendCap(capMenu, "setAppMenu")
-  requireBackendCap(backend, capMenu, "setAppMenu")
-  doAssert backend.setAppMenu != nil,
-      "setAppMenu capability requires a setAppMenu vtable slot"
-  backend.setAppMenu(h, menu, cb)
+  let b = backend
+  requireBackendCap(b, capMenu, "setAppMenu")
+  b.setAppMenuImpl(h, menu, cb)
 
 template trayCreate*(backend: Backend; h: BackendHandle; options: TrayOptions;
     cb: MenuCallback) =
   requireSelectedBackendCap(capTray, "trayCreate")
-  requireBackendCap(backend, capTray, "trayCreate")
-  doAssert backend.trayCreate != nil,
-      "tray capability requires a trayCreate vtable slot"
-  backend.trayCreate(h, options, cb)
+  let b = backend
+  requireBackendCap(b, capTray, "trayCreate")
+  b.trayCreateImpl(h, options, cb)
 
 template trayUpdate*(backend: Backend; h: BackendHandle; id: string;
     options: TrayOptions) =
   requireSelectedBackendCap(capTray, "trayUpdate")
-  requireBackendCap(backend, capTray, "trayUpdate")
-  doAssert backend.trayUpdate != nil,
-      "tray capability requires a trayUpdate vtable slot"
-  backend.trayUpdate(h, id, options)
+  let b = backend
+  requireBackendCap(b, capTray, "trayUpdate")
+  b.trayUpdateImpl(h, id, options)
 
 template trayDestroy*(backend: Backend; h: BackendHandle; id: string) =
   requireSelectedBackendCap(capTray, "trayDestroy")
-  requireBackendCap(backend, capTray, "trayDestroy")
-  doAssert backend.trayDestroy != nil,
-      "tray capability requires a trayDestroy vtable slot"
-  backend.trayDestroy(h, id)
+  let b = backend
+  requireBackendCap(b, capTray, "trayDestroy")
+  b.trayDestroyImpl(h, id)
 
 template onWindowEvent*(backend: Backend; h: BackendHandle;
     cb: WindowEventCallback) =
   requireSelectedBackendCap(capWindowEvents, "onWindowEvent")
-  requireBackendCap(backend, capWindowEvents, "onWindowEvent")
-  doAssert backend.onWindowEvent != nil,
-      "window-event capability requires an onWindowEvent vtable slot"
-  backend.onWindowEvent(h, cb)
+  let b = backend
+  requireBackendCap(b, capWindowEvents, "onWindowEvent")
+  b.onWindowEventImpl(h, cb)
