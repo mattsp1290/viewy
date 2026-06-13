@@ -82,7 +82,8 @@ unbind, and resolve. viewy adds typed dispatch helpers:
 
 - `dispatchEval` for worker-safe event delivery.
 - `dispatchResolve` for worker-safe deferred RPC completion.
-- `dispatchTerminate` for worker-safe shutdown paths and windowed smoke tests.
+- `dispatchTerminate` for worker-safe shutdown paths and windowed smoke tests;
+  see the [native backend design note](native-backends.md#cross-thread-terminate-contract).
 
 Generic `dispatch(h, fn)` exists for UI-thread-created work, but the webview
 backend rejects worker-created closure dispatch. Cross-thread app features use
@@ -142,9 +143,9 @@ rules, and backend lifetime are the same in all modes.
 
 The supported runtime configuration is `--mm:orc --threads:on`. Backend
 operations are main/UI-thread only except for generic `dispatch` and the typed
-handoff helpers `dispatchEval` and `dispatchResolve`. The webview backend
-records the thread that created the native handle and asserts the UI-thread rule
-outside release builds.
+handoff helpers `dispatchEval`, `dispatchResolve`, and `dispatchTerminate`.
+The webview backend records the thread that created the native handle and
+asserts the UI-thread rule outside release builds.
 
 Worker-thread `emit` and deferred RPC completion do not capture Nim closures or
 strings across the thread boundary. Instead, they serialize on the caller's
