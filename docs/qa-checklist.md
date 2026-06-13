@@ -16,6 +16,9 @@ Baseline:
 - OS/session: GNOME or KDE desktop session, not only Xvfb.
 - Packages: `gtk+-3.0`, `webkit2gtk-4.1 >= 2.40`, and `libayatana-appindicator3`
   when tray behavior is under test.
+- Tray host: KDE has a visible SNI/AppIndicator host by default; GNOME tray
+  tests require an enabled StatusNotifier/AppIndicator extension or equivalent
+  host.
 - Build: `nim c --mm:orc --threads:on -d:viewyBackend=native <app>.nim`.
 
 Window lifecycle and IPC:
@@ -95,12 +98,15 @@ Tray/status item:
   rendering in light and dark modes.
 - Status menu item activation dispatches ids exactly once.
 - Updating and destroying the item leaves no stale menu-bar icon.
-- Quit-from-tray/status item terminates cleanly.
+- Quit-from-tray/status item terminates cleanly after pending RPC/event
+  handoffs, leaves no stale menu-bar icon, and leaves no lingering app process.
 
 Window events:
 
 - Close/focus/blur/resize events match macOS window behavior, including traffic
   light close and full-screen transitions when supported.
+- Event callbacks remain safe during close while worker-thread emits/resolves
+  are pending.
 
 ## Windows Native Backend
 
@@ -122,16 +128,20 @@ Menus and accelerators:
 Tray:
 
 - Notification-area icon appears with expected icon and tooltip.
+- Light/dark icon variants remain legible when the Windows theme changes.
 - Tray menu renders all item kinds and dispatches ids exactly once.
 - Explorer restart or taskbar refresh does not permanently orphan the tray icon
   once the app updates or recreates it.
-- Quit-from-tray terminates cleanly.
+- Quit-from-tray terminates cleanly after pending RPC/event handoffs, leaves no
+  stale notification-area icon, and leaves no lingering app process.
 
 Window events:
 
 - Close/focus/blur/resize events match native behavior, including Alt+F4 and
   taskbar close.
 - DPI scaling changes do not corrupt resize dimensions or menu/tray placement.
+- Event callbacks remain safe during close while worker-thread emits/resolves
+  are pending.
 
 ## Release Gate
 
