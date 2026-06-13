@@ -21,13 +21,22 @@ doAssert backend.caps == {}
     checkpoint output
     check exitCode == 0
 
-  test "native selection fails until native backends exist":
+  test "native selection exports Linux backend on Linux":
     let (output, exitCode) = nimCheck("""
 import viewy/backend/select
-discard newBackend()
+let backend = newBackend()
+doAssert backend.create != nil
+doAssert backend.destroy != nil
+doAssert backend.run != nil
+doAssert backend.terminate != nil
+doAssert backend.dispatchTerminate != nil
 """)
-    check exitCode != 0
-    check output.contains("viewyBackend=native selected")
+    when defined(linux):
+      checkpoint output
+      check exitCode == 0
+    else:
+      check exitCode != 0
+      check output.contains("viewyBackend=native currently requires Linux")
 
   test "unsupported backend value fails clearly":
     let (output, exitCode) = nimCheck("""

@@ -6,7 +6,11 @@ when selectedBackend == "lite":
   import viewy/backend/lite/backend
   export backend.newBackend
 elif selectedBackend == "native":
-  template newBackend*(): Backend =
-    {.error: "viewyBackend=native selected, but native backends are not implemented yet".}
+  when defined(linux):
+    import viewy/backend/native/linux/backend
+    export backend.newBackend
+  else:
+    template newBackend*(): Backend =
+      {.error: "viewyBackend=native currently requires Linux".}
 else:
   {.error: "unsupported -d:viewyBackend value; expected 'native' or 'lite'".}

@@ -159,6 +159,9 @@ proc gSignalConnectData*(instance: pointer; detailedSignal: cstring;
     connectFlags: GConnectFlags): culong
   {.importc: "g_signal_connect_data", header: "glib-object.h", cdecl.}
 
+proc gIdleAdd*(function: GSourceFunc; data: pointer): cuint
+  {.importc: "g_idle_add", header: "glib.h", cdecl.}
+
 proc gTimeoutAdd*(interval: cuint; function: GSourceFunc; data: pointer): cuint
   {.importc: "g_timeout_add", header: "glib.h", cdecl.}
 
