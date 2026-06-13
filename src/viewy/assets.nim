@@ -91,14 +91,85 @@ proc embeddedHtml*(): string =
 proc normalizeAssetPath*(path: string): string =
   ## Normalize generated asset-table keys into absolute route paths.
   ##
-  ## This is not a complete security canonicalizer for untrusted native scheme
-  ## requests; scheme backends must add traversal and decoding checks before
-  ## using request paths as a trust boundary.
+  ## This is for trusted generated asset metadata. Use
+  ## `canonicalizeAssetRequestPath` before looking up untrusted native scheme
+  ## or HTTP request paths.
   result = path.replace("\\", "/")
   if result.len == 0:
     result = "/"
   if not result.startsWith("/"):
     result = "/" & result
+
+proc isHexDigit(c: char): bool =
+  c in {'0' .. '9', 'a' .. 'f', 'A' .. 'F'}
+
+proc hexValue(c: char): int =
+  case c
+  of '0' .. '9': ord(c) - ord('0')
+  of 'a' .. 'f': ord(c) - ord('a') + 10
+  of 'A' .. 'F': ord(c) - ord('A') + 10
+  else: -1
+
+proc hasPercentEscape(path: string): bool =
+  var i = 0
+  while i < path.len:
+    if path[i] == '%' and i + 2 < path.len and path[i + 1].isHexDigit and
+        path[i + 2].isHexDigit:
+      return true
+    inc i
+
+proc decodePercentOnce(path: string; decoded: var string): bool =
+  decoded = newStringOfCap(path.len)
+  var i = 0
+  while i < path.len:
+    if path[i] == '%':
+      if i + 2 >= path.len or not path[i + 1].isHexDigit or
+          not path[i + 2].isHexDigit:
+        return false
+      decoded.add char((path[i + 1].hexValue shl 4) or path[i + 2].hexValue)
+      i += 3
+    else:
+      decoded.add path[i]
+      inc i
+  true
+
+proc canonicalizeAssetRequestPath*(path: string): tuple[ok: bool;
+    path: string] =
+  ## Canonicalize an untrusted asset request path before asset-table lookup.
+  ##
+  ## The result is case-sensitive and absolute in route-space, e.g.
+  ## `/assets/app.js`. Percent-encoding is decoded exactly once; malformed
+  ## escapes, double-encoded path escapes, backslashes, absolute URLs, NUL
+  ## bytes, and parent-directory segments are rejected.
+  if path.len > 0 and (path.contains('\\') or path.contains('\0') or
+      path.contains("://") or path.startsWith("//")):
+    return (false, "")
+
+  var decoded: string
+  if not decodePercentOnce(path, decoded):
+    return (false, "")
+  let hasUnsafeDecodedPath = decoded.contains('\\') or decoded.contains('\0') or
+    decoded.contains("://") or decoded.startsWith("//") or
+        decoded.hasPercentEscape
+  if hasUnsafeDecodedPath:
+    return (false, "")
+
+  var parts: seq[string]
+  for part in decoded.split('/'):
+    case part
+    of "", ".":
+      discard
+    of "..":
+      return (false, "")
+    else:
+      if part.len >= 2 and part[1] == ':' and part[0].toLowerAscii in {'a' .. 'z'}:
+        return (false, "")
+      parts.add part
+
+  if parts.len == 0:
+    (true, "/")
+  else:
+    (true, "/" & parts.join("/"))
 
 proc rewriteAbsoluteAssetUrls*(html, prefix: string): string =
   ## Rewrite root-absolute frontend asset URLs under the served-mode prefix.
@@ -151,7 +222,11 @@ proc assetTableHandler*(assets: openArray[AssetTableItem];
     table[item.path] = item
 
   result = proc(request: AssetRequest): AssetResponse {.gcsafe.} =
-    let requestPath = normalizeAssetPath(request.path)
+    let canonical = canonicalizeAssetRequestPath(request.path)
+    if not canonical.ok:
+      return assetResponse(400, "Bad Request", "text/plain; charset=utf-8",
+        "bad request", [Header((name: "Cache-Control", value: "no-store"))])
+    let requestPath = canonical.path
     let assetPath = if requestPath == "/": normalizedDocumentPath else: requestPath
     if not table.hasKey(assetPath):
       return assetResponse(404, "Not Found", "text/plain; charset=utf-8",
