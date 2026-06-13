@@ -1,5 +1,5 @@
 ## Backend abstraction (spec section 4.1): the minimal vtable-style
-## interface every webview backend must satisfy.
+## interface every backend must satisfy.
 
 type
   BackendHandle* = pointer

@@ -1,4 +1,4 @@
-## Build flags for the vendored webview/webview backend.
+## Build flags for the vendored webview/webview lite backend.
 ##
 ## This module is imported by `ffi.nim` so any real call site compiles and
 ## links the vendored `webview.cc` translation unit with the correct platform
@@ -63,4 +63,4 @@ elif defined(windows):
     {.passL: "-ladvapi32 -lole32 -lshell32 -lshlwapi -luser32 -lversion".}
     {.compile(webviewStub, "-std=c++14 -DWEBVIEW_STATIC=1 -DWEBVIEW_EDGE=1").}
 else:
-  {.error: "viewy webview backend supports linux, macOS, and windows only".}
+  {.error: "viewy lite backend supports linux, macOS, and windows only".}

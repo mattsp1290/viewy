@@ -15,7 +15,7 @@ viewy v1 does not expose:
 - direct native handles;
 - the linked `webview/webview` version at runtime.
 
-The backend abstraction is deliberately narrow. The current webview backend
+The backend abstraction is deliberately narrow. The current lite backend
 wraps create/run/destroy, title, size, navigation, HTML injection, JavaScript
 eval/init, binding, unbinding, and promise return. It intentionally does not
 wrap `webview_get_native_handle` or `webview_version`, and there is no API for
@@ -56,7 +56,7 @@ separate URL-addressable asset files, but it has real tradeoffs:
 
 ## Build Portability
 
-Cross-compilation is not supported. The webview backend selects and probes
+Cross-compilation is not supported. The lite backend selects and probes
 platform dependencies at Nim compile time on the build host. On Linux, the build
 module runs `pkg-config` through `gorge` to find GTK/WebKitGTK flags, so the
 host must have the target platform development packages installed and runnable.
@@ -91,7 +91,7 @@ handoffs; generic closure dispatch is for UI-thread-created work.
 
 These statements are based on the current implementation:
 
-- [src/viewy/backend/wv/ffi.nim](../src/viewy/backend/wv/ffi.nim)
+- [src/viewy/backend/lite/ffi.nim](../src/viewy/backend/lite/ffi.nim)
   wraps the v1 `webview/webview` C API subset and explicitly omits native handle
   and version helpers.
 - [src/viewy/assets.nim](../src/viewy/assets.nim)
@@ -100,7 +100,7 @@ These statements are based on the current implementation:
 - [src/viewy/assets_served.nim](../src/viewy/assets_served.nim)
   implements the loopback server, per-launch prefix, one-time document token,
   session token, cookie/bearer authentication, and no-store asset responses.
-- [src/viewy/backend/wv/build.nim](../src/viewy/backend/wv/build.nim)
+- [src/viewy/backend/lite/build.nim](../src/viewy/backend/lite/build.nim)
   performs host compile-time platform selection and Linux `pkg-config` probes.
 - [src/viewy/app.nim](../src/viewy/app.nim)
   wires served mode as static asset navigation while RPC remains webview

@@ -65,7 +65,7 @@ work (e.g. `emit` from worker threads) routes through the backend's
 viewy.nimble            # the library (jsony + zippy, nothing else)
 src/viewy.nim           # re-exports the public API
 src/viewy/              # app, rpc, events, assets modules
-src/viewy/backend/      # backend abstraction + webview/webview backend (wv/)
+src/viewy/backend/      # backend abstraction + lite backend (lite/; wv/ shim)
 cli/                    # viewy CLI package (init/dev/build)
 examples/               # hello, todo
 tests/

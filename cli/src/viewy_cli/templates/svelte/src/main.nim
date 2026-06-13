@@ -2,7 +2,7 @@ import viewy
 
 when defined(viewyGeneratedAssets):
   import std/os
-  import viewy/backend/wv/backend
+  import viewy/backend/lite/backend
 
 when isMainModule:
   when defined(viewyGeneratedAssets):

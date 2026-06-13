@@ -1,4 +1,4 @@
-## Unmanaged cross-thread payload handoff for the webview backend.
+## Unmanaged cross-thread payload handoff for the lite backend.
 
 import ./ffi
 
@@ -7,7 +7,7 @@ proc cFree(p: pointer) {.importc: "free", header: "<stdlib.h>".}
 
 type
   WvHandoffError* = object of CatchableError
-    ## Raised when a typed webview handoff cannot be queued.
+    ## Raised when a typed lite backend handoff cannot be queued.
 
   HandoffKind = enum
     hkEval
