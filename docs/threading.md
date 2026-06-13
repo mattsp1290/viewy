@@ -6,11 +6,14 @@ transferred to the UI thread by capture. `{.gcsafe.}` only says the callback may
 run while the GC is active; it does not make captured state safe to move between
 threads.
 
-This document refines the spec section 4.6 rule:
+This document refines the backend threading rule:
 
-- all backend operations except `dispatch` are main/UI-thread only;
-- worker-thread `emit` and deferred `resolve` must route through `dispatch`;
-- the handoff must not transfer Nim-managed closures across the thread boundary.
+- synchronous backend operations are main/UI-thread only;
+- generic closure `dispatch` is limited to UI-thread-created work;
+- worker-thread `emit`, deferred `resolve`, and terminate requests must route
+  through typed handoff slots: `dispatchEval`, `dispatchResolve`, and
+  `dispatchTerminate`;
+- no typed handoff may transfer Nim-managed values across the thread boundary.
 
 ## Binding invariant
 
@@ -232,6 +235,6 @@ UI-thread callbacks still guard native operations against a destroyed handle.
   app operations must use typed handoff helpers.
 - Validation belongs in the CI valgrind bead: `test_emit_stress` plus a
   scheme-flood test should pass under `--mm:orc -d:useMalloc` and valgrind on
-  Linux with zero definitely-lost leaks and zero invalid reads. Until that job
-  exists, local stress tests are useful smoke coverage but are not the memory
-  safety acceptance bar.
+  Linux with zero Valgrind errors and zero definitely-lost leaks. Until that
+  job exists, local stress tests are useful smoke coverage but are not the
+  memory safety acceptance bar.
