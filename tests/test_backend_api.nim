@@ -1,3 +1,5 @@
+import std/[os, osproc, strutils]
+
 import viewy/backend/api
 import viewy/backend/wv/backend
 
@@ -90,7 +92,7 @@ proc handleAsset(request: AssetRequest): AssetResponse {.gcsafe.} =
     body: request.path,
   )
 
-fakeBackend.registerScheme(h, "viewy", handleAsset)
+registerScheme(fakeBackend, h, "viewy", handleAsset)
 
 let quitItem = MenuItem(
   id: "quit",
@@ -114,7 +116,7 @@ proc handleMenu(id: string) {.gcsafe.} =
   {.cast(gcsafe).}:
     menuIds.add id
 
-fakeBackend.setAppMenu(h, menu, handleMenu)
+setAppMenu(fakeBackend, h, menu, handleMenu)
 
 let tray = TrayOptions(
   id: "main",
@@ -128,9 +130,9 @@ proc handleTray(id: string) {.gcsafe.} =
   {.cast(gcsafe).}:
     trayIds.add id
 
-fakeBackend.trayCreate(h, tray, handleTray)
-fakeBackend.trayUpdate(h, "main", tray)
-fakeBackend.trayDestroy(h, "main")
+trayCreate(fakeBackend, h, tray, handleTray)
+trayUpdate(fakeBackend, h, "main", tray)
+trayDestroy(fakeBackend, h, "main")
 
 proc handleWindowEvent(event: WindowEvent) {.gcsafe.} =
   doAssert event.width == 640
@@ -138,7 +140,16 @@ proc handleWindowEvent(event: WindowEvent) {.gcsafe.} =
   {.cast(gcsafe).}:
     windowEvents.add event.kind
 
-fakeBackend.onWindowEvent(h, handleWindowEvent)
+onWindowEvent(fakeBackend, h, handleWindowEvent)
+
+var missingSchemeCapBackend = fakeBackend
+missingSchemeCapBackend.caps = {}
+var runtimeCapAsserted = false
+try:
+  registerScheme(missingSchemeCapBackend, h, "viewy", handleAsset)
+except AssertionDefect:
+  runtimeCapAsserted = true
+doAssert runtimeCapAsserted
 
 doAssert capScheme in fakeBackend.caps
 doAssert fakeBackend.dispatchTerminate != nil
@@ -164,5 +175,26 @@ doAssert liteBackend.trayCreate == nil
 doAssert liteBackend.trayUpdate == nil
 doAssert liteBackend.trayDestroy == nil
 doAssert liteBackend.onWindowEvent == nil
+
+let capGateProbe = getTempDir() / "viewy_cap_gate_lite_fail.nim"
+writeFile(capGateProbe, """
+import viewy/backend/api
+
+proc handleAsset(request: AssetRequest): AssetResponse {.gcsafe.} =
+  AssetResponse(status: 200, statusText: "OK", mimeType: "text/plain")
+
+let backend = Backend(
+  caps: {capScheme},
+  registerScheme: proc(h: BackendHandle; scheme: string;
+      handler: AssetHandler) = discard,
+)
+
+registerScheme(backend, nil, "viewy", handleAsset)
+""")
+let (capGateOutput, capGateCode) = execCmdEx(
+  "nim check --path:src -d:viewyBackend=lite " & capGateProbe)
+removeFile(capGateProbe)
+doAssert capGateCode != 0
+doAssert capGateOutput.contains("registerScheme requires a backend capability")
 
 echo "ok: backend v2 api types and slots"

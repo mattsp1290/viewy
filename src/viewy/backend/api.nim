@@ -211,3 +211,72 @@ type
       ## The backend invokes `cb` later on the backend UI thread only. Native
       ## events received on other threads must hop through an unmanaged handoff
       ## before callback invocation.
+
+const selectedBackend* {.strdefine: "viewyBackend".} = "native"
+  ## Compile-time backend selection used by public APIs to reject capabilities
+  ## the selected backend cannot provide.
+
+when selectedBackend == "native":
+  const selectedBackendCaps*: set[Capability] = {
+    capScheme, capMenu, capTray, capWindowEvents}
+elif selectedBackend == "lite":
+  const selectedBackendCaps*: set[Capability] = {}
+else:
+  {.error: "unsupported -d:viewyBackend value; expected 'native' or 'lite'".}
+
+template requireSelectedBackendCap*(cap: static[Capability];
+    operation: static[string]) =
+  when cap notin selectedBackendCaps:
+    {.error: operation & " requires a backend capability that -d:viewyBackend=" &
+        selectedBackend & " does not provide".}
+
+proc requireBackendCap*(backend: Backend; cap: Capability; operation: string) =
+  doAssert cap in backend.caps,
+      operation & " requires a backend capability that this backend does not provide"
+
+template registerScheme*(backend: Backend; h: BackendHandle; scheme: string;
+    handler: AssetHandler) =
+  requireSelectedBackendCap(capScheme, "registerScheme")
+  requireBackendCap(backend, capScheme, "registerScheme")
+  doAssert backend.registerScheme != nil,
+      "registerScheme capability requires a registerScheme vtable slot"
+  backend.registerScheme(h, scheme, handler)
+
+template setAppMenu*(backend: Backend; h: BackendHandle; menu: seq[MenuItem];
+    cb: MenuCallback) =
+  requireSelectedBackendCap(capMenu, "setAppMenu")
+  requireBackendCap(backend, capMenu, "setAppMenu")
+  doAssert backend.setAppMenu != nil,
+      "setAppMenu capability requires a setAppMenu vtable slot"
+  backend.setAppMenu(h, menu, cb)
+
+template trayCreate*(backend: Backend; h: BackendHandle; options: TrayOptions;
+    cb: MenuCallback) =
+  requireSelectedBackendCap(capTray, "trayCreate")
+  requireBackendCap(backend, capTray, "trayCreate")
+  doAssert backend.trayCreate != nil,
+      "tray capability requires a trayCreate vtable slot"
+  backend.trayCreate(h, options, cb)
+
+template trayUpdate*(backend: Backend; h: BackendHandle; id: string;
+    options: TrayOptions) =
+  requireSelectedBackendCap(capTray, "trayUpdate")
+  requireBackendCap(backend, capTray, "trayUpdate")
+  doAssert backend.trayUpdate != nil,
+      "tray capability requires a trayUpdate vtable slot"
+  backend.trayUpdate(h, id, options)
+
+template trayDestroy*(backend: Backend; h: BackendHandle; id: string) =
+  requireSelectedBackendCap(capTray, "trayDestroy")
+  requireBackendCap(backend, capTray, "trayDestroy")
+  doAssert backend.trayDestroy != nil,
+      "tray capability requires a trayDestroy vtable slot"
+  backend.trayDestroy(h, id)
+
+template onWindowEvent*(backend: Backend; h: BackendHandle;
+    cb: WindowEventCallback) =
+  requireSelectedBackendCap(capWindowEvents, "onWindowEvent")
+  requireBackendCap(backend, capWindowEvents, "onWindowEvent")
+  doAssert backend.onWindowEvent != nil,
+      "window-event capability requires an onWindowEvent vtable slot"
+  backend.onWindowEvent(h, cb)
