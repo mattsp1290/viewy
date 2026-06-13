@@ -7,7 +7,7 @@ const
 let
   cliRoot = getCurrentDir()
   repoRoot = parentDir(cliRoot)
-  templateRoot = cliRoot / "templates"
+  templateRoot = cliRoot / "src" / "viewy_cli" / "templates"
 
 proc exeName(name: string): string =
   when defined(windows):

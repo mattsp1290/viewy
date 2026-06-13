@@ -5,6 +5,7 @@ author = "Matt Spurlin"
 description = "A Tauri/Wails-style desktop app framework for Nim"
 license = "MIT"
 srcDir = "src"
+paths = @["src"]
 
 # Dependencies
 # Keep this list ruthless (spec §9): jsony for the RPC/JSON codec,
@@ -31,7 +32,7 @@ task pretty, "Run nimpretty over Nim source files checked by CI":
   for f in ["viewy.nimble", "cli/viewy_cli.nimble"]:
     exec "nimpretty " & f
 
-  for root in ["src", "cli/src", "cli/templates", "cli/tests", "tests", "examples"]:
+  for root in ["src", "cli/src", "cli/tests", "tests", "examples"]:
     for f in walkDirRec(root):
       if shouldFormat(f) and not shouldSkip(f):
         exec "nimpretty " & f

@@ -66,13 +66,29 @@ proc defaultTemplateRoot(): string =
     raise initError("VIEWY_TEMPLATE_ROOT does not exist: " & fromEnv)
 
   let appDir = getAppDir()
+  let nimbleDir = parentDir(appDir)
   for candidate in [
     appDir / "templates",
+    appDir / "viewy_cli" / "templates",
     parentDir(appDir) / "share" / "viewy" / "templates",
+    parentDir(currentSourcePath()) / "templates",
     parentDir(parentDir(parentDir(currentSourcePath()))) / "templates"
   ]:
     if dirExists(candidate):
       return candidate
+
+  for packageRoot in [nimbleDir / "pkgs2", nimbleDir / "pkgs"]:
+    if not dirExists(packageRoot):
+      continue
+    for kind, candidate in walkDir(packageRoot):
+      if kind != pcDir:
+        continue
+      if not splitPath(candidate).tail.startsWith("viewy_cli-"):
+        continue
+      if dirExists(candidate / "viewy_cli" / "templates"):
+        return candidate / "viewy_cli" / "templates"
+      if dirExists(candidate / "templates"):
+        return candidate / "templates"
 
   raise initError("template assets not found; reinstall viewy or set VIEWY_TEMPLATE_ROOT")
 

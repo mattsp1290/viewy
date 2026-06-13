@@ -1,8 +1,8 @@
 import std/[net, os, osproc, strutils, times, uri]
 
-import viewy_cli/build
-import viewy_cli/config
-import viewy_cli/procutil
+import build
+import config
+import procutil
 
 type
   DevError* = object of CatchableError

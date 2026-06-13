@@ -1,7 +1,7 @@
 import std/[os, osproc, strutils]
 
-import viewy_cli/assets_gen
-import viewy_cli/config
+import assets_gen
+import config
 
 type
   BuildError* = object of CatchableError
@@ -36,6 +36,26 @@ proc nimbleViewyLibPath(): string =
     if result.len > 0:
       return
 
+proc installedSiblingViewyLibPath(): string =
+  let appDir = getAppDir()
+  let packageRoots = [
+    parentDir(appDir) / "pkgs2",
+    parentDir(appDir) / "pkgs",
+    parentDir(parentDir(appDir)) / "pkgs2",
+    parentDir(parentDir(appDir)) / "pkgs"
+  ]
+  for packageRoot in packageRoots:
+    if not dirExists(packageRoot):
+      continue
+    for kind, candidate in walkDir(packageRoot):
+      if kind != pcDir:
+        continue
+      if not splitPath(candidate).tail.startsWith("viewy-"):
+        continue
+      result = viewyModulePath(candidate)
+      if result.len > 0:
+        return
+
 proc viewyLibPath*(): string =
   if existsEnv("VIEWY_LIB_SRC"):
     let fromEnv = getEnv("VIEWY_LIB_SRC")
@@ -50,7 +70,11 @@ proc viewyLibPath*(): string =
   if fileExists(fromCheckout / "viewy.nim"):
     return fromCheckout
 
-  nimbleViewyLibPath()
+  result = installedSiblingViewyLibPath()
+  if result.len > 0:
+    return
+
+  result = nimbleViewyLibPath()
 
 proc checked(exec: ExecProc; command, workingDir: string) =
   let (output, exitCode) = exec(command, workingDir)
