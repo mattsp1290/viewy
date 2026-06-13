@@ -181,6 +181,9 @@ proc handleRequest(s: ServedServer; req: Request): Future[void] {.async, gcsafe.
 
   let route = s.routeAssetPath(req.url.path)
   if route.bad:
+    if not hasSession:
+      await req.respondText(Http401, "unauthorized")
+      return
     await req.respondText(Http400, "bad request")
     return
   if not route.matched:

@@ -98,6 +98,10 @@ doAssert servedAssets[0].gzipBytes == "gz-html"
     let rootAbsoluteAsset = rootClient.request(base & "/assets/app.js")
     check rootAbsoluteAsset.getStatus == 401
 
+    let unauthBadPath = rootClient.request(base & prefixPath &
+        "/assets/%252e%252e/secret")
+    check unauthBadPath.getStatus == 401
+
     let badPath = client.request(base & prefixPath & "/assets/%252e%252e/secret")
     check badPath.getStatus == 400
 
