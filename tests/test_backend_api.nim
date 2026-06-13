@@ -92,8 +92,6 @@ proc handleAsset(request: AssetRequest): AssetResponse {.gcsafe.} =
     body: request.path,
   )
 
-registerScheme(fakeBackend, h, "viewy", handleAsset)
-
 let quitItem = MenuItem(
   id: "quit",
   label: "Quit",
@@ -116,8 +114,6 @@ proc handleMenu(id: string) {.gcsafe.} =
   {.cast(gcsafe).}:
     menuIds.add id
 
-setAppMenu(fakeBackend, h, menu, handleMenu)
-
 let tray = TrayOptions(
   id: "main",
   tooltip: "Viewy",
@@ -130,37 +126,39 @@ proc handleTray(id: string) {.gcsafe.} =
   {.cast(gcsafe).}:
     trayIds.add id
 
-trayCreate(fakeBackend, h, tray, handleTray)
-trayUpdate(fakeBackend, h, "main", tray)
-trayDestroy(fakeBackend, h, "main")
-
 proc handleWindowEvent(event: WindowEvent) {.gcsafe.} =
   doAssert event.width == 640
   doAssert event.height == 480
   {.cast(gcsafe).}:
     windowEvents.add event.kind
 
-onWindowEvent(fakeBackend, h, handleWindowEvent)
+when selectedBackend == "native":
+  registerScheme(fakeBackend, h, "viewy", handleAsset)
+  setAppMenu(fakeBackend, h, menu, handleMenu)
+  trayCreate(fakeBackend, h, tray, handleTray)
+  trayUpdate(fakeBackend, h, "main", tray)
+  trayDestroy(fakeBackend, h, "main")
+  onWindowEvent(fakeBackend, h, handleWindowEvent)
 
-var missingSchemeCapBackend = fakeBackend
-missingSchemeCapBackend.caps = {}
-var runtimeCapAsserted = false
-try:
-  missingSchemeCapBackend.registerScheme(h, "viewy", handleAsset)
-except AssertionDefect:
-  runtimeCapAsserted = true
-doAssert runtimeCapAsserted
+  var missingSchemeCapBackend = fakeBackend
+  missingSchemeCapBackend.caps = {}
+  var runtimeCapAsserted = false
+  try:
+    missingSchemeCapBackend.registerScheme(h, "viewy", handleAsset)
+  except AssertionDefect:
+    runtimeCapAsserted = true
+  doAssert runtimeCapAsserted
 
-let incompleteTrayBackend = Backend(
-  caps: {capTray},
-  trayCreateImpl: fakeTrayCreate,
-)
-var incompleteTrayAsserted = false
-try:
-  incompleteTrayBackend.trayCreate(h, tray, handleTray)
-except AssertionDefect:
-  incompleteTrayAsserted = true
-doAssert incompleteTrayAsserted
+  let incompleteTrayBackend = Backend(
+    caps: {capTray},
+    trayCreateImpl: fakeTrayCreate,
+  )
+  var incompleteTrayAsserted = false
+  try:
+    incompleteTrayBackend.trayCreate(h, tray, handleTray)
+  except AssertionDefect:
+    incompleteTrayAsserted = true
+  doAssert incompleteTrayAsserted
 
 doAssert capScheme in fakeBackend.caps
 doAssert fakeBackend.dispatchTerminate != nil
@@ -171,11 +169,12 @@ doAssert fakeBackend.trayUpdateImpl != nil
 doAssert fakeBackend.trayDestroyImpl != nil
 doAssert fakeBackend.onWindowEventImpl != nil
 doAssert terminated
-doAssert schemeSeen == "viewy"
-doAssert assetPathSeen == "/index.html"
-doAssert menuIds == @["quit"]
-doAssert trayIds == @["main", "show", "main:updated", "main:destroyed"]
-doAssert windowEvents == @[weResize]
+when selectedBackend == "native":
+  doAssert schemeSeen == "viewy"
+  doAssert assetPathSeen == "/index.html"
+  doAssert menuIds == @["quit"]
+  doAssert trayIds == @["main", "show", "main:updated", "main:destroyed"]
+  doAssert windowEvents == @[weResize]
 
 let liteBackend = newBackend()
 doAssert liteBackend.caps == {}

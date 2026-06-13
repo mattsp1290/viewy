@@ -32,11 +32,12 @@ proc newApp*(title = "viewy"; width = 1024; height = 768;
     backend = newBackend()): App =
   ## Create an app configuration.
   ##
-  ## The default backend is the vendored webview implementation. Tests and
-  ## alternate backends may pass a custom `Backend` vtable. `run` creates the
-  ## native handle, injects the `__viewy` runtime, binds all `expose`d RPC
-  ## procs, loads either embedded HTML or a dev-server URL, enters the blocking
-  ## backend loop, then destroys the handle on exit.
+  ## The default backend comes from `viewy/backend/select` and is chosen by
+  ## `-d:viewyBackend`. Tests and alternate backends may pass a custom
+  ## `Backend` vtable. `run` creates the native handle, injects the `__viewy`
+  ## runtime, binds all `expose`d RPC procs, loads either embedded HTML or a
+  ## dev-server URL, enters the blocking backend loop, then destroys the handle
+  ## on exit.
   ##
   ## When `assets = assetsServedMode` or the current lite fallback for
   ## `assetsScheme` is active, `assetHandler` runs on the served-mode HTTP

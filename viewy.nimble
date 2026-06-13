@@ -17,6 +17,12 @@ requires "zippy == 0.10.19"
 
 import std/[os, strutils]
 
+task test, "Run the test suite against the current lite backend":
+  for kind, f in walkDir("tests"):
+    if kind == pcFile and f.endsWith(".nim"):
+      exec "nim c -r --hints:off --mm:orc --threads:on " &
+        "--outdir:build/tests --define:viewyBackend=lite " & f
+
 task pretty, "Run nimpretty over Nim source files checked by CI":
   proc shouldFormat(path: string): bool =
     path.endsWith(".nim") or path.endsWith(".nimble")
