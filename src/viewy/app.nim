@@ -83,6 +83,11 @@ proc bindRpc(app: App) =
       invokeBinding(app, rpc, id, jsonArgs)
     )
 
+proc schemeHandler(app: App): AssetHandler =
+  if not app.assetHandler.isNil:
+    return app.assetHandler
+  assetTableHandler(generatedSchemeAssetTable(), generatedSchemeDocumentPath())
+
 proc run*(app: App) =
   ## Run the app until the backend event loop exits.
   ##
@@ -91,8 +96,14 @@ proc run*(app: App) =
   ## `viewy/rpc.expose`, loads content, and always destroys the backend handle
   ## after `run` returns or raises.
   var servedServer: ServedServer
+  let useNativeScheme =
+    when selectedBackend == "native":
+      app.assets == assetsScheme and capScheme in app.backend.caps
+    else:
+      false
   when not defined(viewyDev):
-    if app.assets == assetsServedMode or app.assets == assetsScheme:
+    if app.assets == assetsServedMode or
+        (app.assets == assetsScheme and not useNativeScheme):
       servedServer = startGeneratedServedServer(app.assetHandler)
 
   try:
@@ -111,7 +122,14 @@ proc run*(app: App) =
       of assetsServedMode:
         app.backend.navigate(app.handle, servedServer.documentUrl())
       of assetsScheme:
-        app.backend.navigate(app.handle, servedServer.documentUrl())
+        if useNativeScheme:
+          when selectedBackend == "native":
+            app.backend.registerScheme(app.handle, "viewy", app.schemeHandler())
+            app.backend.navigate(app.handle, "viewy://app/")
+          else:
+            app.backend.navigate(app.handle, servedServer.documentUrl())
+        else:
+          app.backend.navigate(app.handle, servedServer.documentUrl())
       of assetsEmbedded:
         let html = if app.html == defaultEmbeddedHtml: embeddedHtml() else: app.html
         app.backend.setHtml(app.handle, html)

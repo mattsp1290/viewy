@@ -4,7 +4,7 @@
 ## bridge. Higher-level native features such as custom schemes, menus, and tray
 ## integration are implemented by later backend slices.
 
-import std/[locks, strutils]
+import std/[locks, strutils, uri]
 
 import ../../api
 import ./webkitgtk_ffi
@@ -29,6 +29,10 @@ type
     webviewWidget: ptr GtkWidget
     webview: ptr WebKitWebView
 
+  SchemeRegistration = ref object
+    scheme: string
+    handler: AssetHandler
+
   Binding = ref object
     name: string
     cb: BindCallback
@@ -36,6 +40,7 @@ type
   LinuxState = ref object
     shared: ptr SharedState
     bindings: seq[Binding]
+    schemes: seq[SchemeRegistration]
     dispatches: seq[DispatchSlot]
     handlerConnected: bool
     handlerRegistered: bool
@@ -70,7 +75,11 @@ type
     id: string
     args: string
 
+  HeaderCollector = object
+    headers: seq[Header]
+
 var liveStates {.global.}: seq[LinuxState]
+var registeredSchemes {.global.}: seq[string]
 
 proc toShared(h: BackendHandle): ptr SharedState =
   doAssert h != nil, "viewy backend handle is nil"
@@ -201,6 +210,24 @@ proc findBinding(state: LinuxState; name: string): Binding =
   for binding in state.bindings:
     if binding.name == name:
       return binding
+
+proc findScheme(state: LinuxState; scheme: string): SchemeRegistration =
+  for registration in state.schemes:
+    if registration.scheme == scheme:
+      return registration
+
+proc findLiveScheme(scheme: string): SchemeRegistration =
+  if liveStates.len == 0:
+    return nil
+  for i in countdown(liveStates.high, 0):
+    result = liveStates[i].findScheme(scheme)
+    if result != nil:
+      return
+
+proc isSchemeRegistered(scheme: string): bool =
+  for registered in registeredSchemes:
+    if registered == scheme:
+      return true
 
 proc closeFromUiThread(state: LinuxState) =
   let shared = state.shared
@@ -368,6 +395,139 @@ proc scriptMessageCb(manager: ptr WebKitUserContentManager;
   except CatchableError:
     discard
 
+proc cstringToString(value: cstring): string =
+  if value == nil: "" else: $value
+
+proc uriPathAndQuery(request: ptr WebKitURISchemeRequest): tuple[path,
+    query: string] =
+  let requestUri = webkitUriSchemeRequestGetUri(request).cstringToString
+  if requestUri.len > 0:
+    let parsed = parseUri(requestUri)
+    result.path = parsed.path
+    result.query = parsed.query
+  if result.path.len == 0:
+    result.path = webkitUriSchemeRequestGetPath(request).cstringToString
+  if result.path.len == 0:
+    result.path = "/"
+
+proc collectHeaderCb(name, value: cstring; userData: pointer) {.cdecl,
+    gcsafe.} =
+  let collector = cast[ptr HeaderCollector](userData)
+  if collector == nil:
+    return
+  {.cast(gcsafe).}:
+    collector.headers.add Header((
+      name: name.cstringToString,
+      value: value.cstringToString,
+    ))
+
+proc requestHeaders(request: ptr WebKitURISchemeRequest): seq[Header] =
+  let headers = webkitUriSchemeRequestGetHttpHeaders(request)
+  if headers == nil:
+    return @[]
+  var collector = HeaderCollector(headers: @[])
+  soupMessageHeadersForeach(headers, collectHeaderCb, addr collector)
+  collector.headers
+
+proc requestBody(request: ptr WebKitURISchemeRequest): string =
+  let stream = webkitUriSchemeRequestGetHttpBody(request)
+  if stream == nil:
+    return ""
+
+  var error: ptr GError
+  var buffer: array[4096, char]
+  while true:
+    let count = gInputStreamRead(stream, addr buffer[0], buffer.len.GSize, nil,
+        addr error)
+    if count <= 0:
+      break
+    let oldLen = result.len
+    result.setLen(oldLen + count.int)
+    copyMem(addr result[oldLen], addr buffer[0], count.int)
+  discard gInputStreamClose(stream, nil, addr error)
+
+proc schemeTextResponse(status: int; statusText, body: string): AssetResponse =
+  AssetResponse(
+    status: status,
+    statusText: statusText,
+    mimeType: "text/plain; charset=utf-8",
+    headers: @[(name: "Cache-Control", value: "no-store")],
+    body: body,
+  )
+
+proc finishSchemeResponse(request: ptr WebKitURISchemeRequest;
+    response: AssetResponse) =
+  let body = response.body
+  let bodyPtr =
+    if body.len == 0:
+      nil
+    else:
+      cast[pointer](unsafeAddr body[0])
+  let bytes = gBytesNew(bodyPtr, body.len.GSize)
+  let stream = gMemoryInputStreamNewFromBytes(bytes)
+  gBytesUnref(bytes)
+
+  let webResponse = webkitUriSchemeResponseNew(stream, int64(body.len))
+  let status = if response.status >= 100: response.status else: 500
+  let reason =
+    if response.statusText.len > 0:
+      response.statusText
+    elif status == 500:
+      "Internal Server Error"
+    else:
+      "OK"
+  webkitUriSchemeResponseSetStatus(webResponse, cuint(status), reason.cstring)
+  if response.mimeType.len > 0:
+    webkitUriSchemeResponseSetContentType(webResponse,
+        response.mimeType.cstring)
+
+  let headers = soupMessageHeadersNew(soupMessageHeadersResponse)
+  if headers != nil:
+    for header in response.headers:
+      if header.name.len > 0 and header.value.len > 0:
+        soupMessageHeadersAppend(headers, header.name.cstring,
+            header.value.cstring)
+    webkitUriSchemeResponseSetHttpHeaders(webResponse, headers)
+
+  webkitUriSchemeRequestFinishWithResponse(request, webResponse)
+  if headers != nil:
+    soupMessageHeadersFree(headers)
+  if stream != nil:
+    gObjectUnref(stream)
+  if webResponse != nil:
+    gObjectUnref(webResponse)
+
+proc schemeRequestCb(request: ptr WebKitURISchemeRequest;
+    data: pointer) {.cdecl, gcsafe.} =
+  discard data
+
+  try:
+    let scheme = webkitUriSchemeRequestGetScheme(request).cstringToString
+    let registration = block:
+      {.cast(gcsafe).}:
+        findLiveScheme(scheme)
+    if registration == nil:
+      finishSchemeResponse(request, schemeTextResponse(404, "Not Found",
+        "not found"))
+      return
+
+    let route = uriPathAndQuery(request)
+    let assetRequest = AssetRequest(
+      scheme: scheme,
+      httpMethod: webkitUriSchemeRequestGetHttpMethod(request).cstringToString,
+      path: route.path,
+      query: route.query,
+      headers: request.requestHeaders,
+      body: request.requestBody,
+    )
+    let response = block:
+      {.cast(gcsafe).}:
+        registration.handler(assetRequest)
+    finishSchemeResponse(request, response)
+  except CatchableError:
+    finishSchemeResponse(request, schemeTextResponse(500,
+      "Internal Server Error", "internal server error"))
+
 proc create(debug: bool): BackendHandle =
   var
     argc: cint
@@ -427,6 +587,7 @@ proc create(debug: bool): BackendHandle =
   let state = LinuxState(
     shared: shared,
     bindings: @[],
+    schemes: @[],
     dispatches: @[],
   )
   rootState state
@@ -635,6 +796,29 @@ proc resolve(h: BackendHandle; id: string; ok: bool; jsonResult: string) =
   state.assertUiThread
   state.evalCurrent(resolveScript(id, ok, jsonResult))
 
+proc registerScheme(h: BackendHandle; scheme: string; handler: AssetHandler) =
+  let state = h.toState
+  state.assertUiThread
+  state.requireOpen("webkit_web_context_register_uri_scheme")
+  if scheme.len == 0:
+    raise newException(LinuxBackendError,
+        "native Linux scheme registration failed: empty scheme")
+  if handler.isNil:
+    raise newException(LinuxBackendError,
+        "native Linux scheme registration failed: nil handler")
+  if state.findScheme(scheme) != nil:
+    raise newException(LinuxBackendError,
+        "native Linux scheme registration failed: duplicate scheme " & scheme)
+
+  let context = webkitWebContextGetDefault()
+  if context == nil:
+    raise newException(LinuxBackendError, "webkit_web_context_get_default failed")
+  state.schemes.add SchemeRegistration(scheme: scheme, handler: handler)
+  if not isSchemeRegistered(scheme):
+    webkitWebContextRegisterUriScheme(context, scheme.cstring, schemeRequestCb,
+        nil, nil)
+    registeredSchemes.add scheme
+
 proc newBackend*(): Backend =
   Backend(
     create: create,
@@ -654,5 +838,6 @@ proc newBackend*(): Backend =
     bindFn: bindFn,
     unbind: unbind,
     resolve: resolve,
-    caps: {},
+    caps: {capScheme},
+    registerSchemeImpl: registerScheme,
   )

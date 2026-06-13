@@ -3,6 +3,11 @@ import std/strutils
 import viewy/assets
 import zippy
 
+proc header(resp: AssetResponse; name: string): string =
+  for header in resp.headers:
+    if cmpIgnoreCase(header.name, name) == 0:
+      return header.value
+
 doAssert generatedAssetsModuleName == "viewy_assets"
 doAssert generatedEmbeddedHtmlSymbol == "viewyEmbeddedHtml"
 doAssert fallbackEmbeddedHtml == "<!doctype html><meta charset=\"utf-8\"><div id=\"app\"></div>"
@@ -43,11 +48,35 @@ let doc = handler(AssetRequest(scheme: "viewy", httpMethod: "GET", path: "/",
   query: "", headers: @[], body: ""))
 doAssert doc.status == 200
 doAssert doc.mimeType == "text/html; charset=utf-8"
-doAssert doc.headers == @[
-  Header((name: "Content-Encoding", value: "gzip")),
-  Header((name: "Cache-Control", value: "no-store")),
-]
+doAssert doc.header("Content-Encoding") == "gzip"
+doAssert doc.header("Cache-Control") == "no-store"
+doAssert doc.header("Accept-Ranges") == "bytes"
 doAssert uncompress(doc.body).contains("src=\"/__viewy_test/assets/app.js\"")
+
+let spa = handler(AssetRequest(scheme: "viewy", httpMethod: "GET",
+  path: "/settings/profile", query: "tab=account",
+  headers: @[Header((name: "Accept", value: "text/html"))], body: ""))
+doAssert spa.status == 200
+doAssert uncompress(spa.body).contains("src=\"/__viewy_test/assets/app.js\"")
+
+let fullAsset = handler(AssetRequest(scheme: "viewy", httpMethod: "GET",
+  path: "/assets/app.js", query: "v=1", headers: @[], body: ""))
+doAssert fullAsset.status == 200
+
+let range = handler(AssetRequest(scheme: "viewy", httpMethod: "GET",
+  path: "/assets/app.js", query: "",
+  headers: @[Header((name: "Range", value: "bytes=0-7"))], body: ""))
+doAssert range.status == 206
+doAssert range.statusText == "Partial Content"
+doAssert range.header("Content-Range") == "bytes 0-7/" & $fullAsset.body.len
+doAssert range.body == fullAsset.body[0 .. 7]
+
+let unsatisfiable = handler(AssetRequest(scheme: "viewy", httpMethod: "GET",
+  path: "/assets/app.js", query: "",
+  headers: @[Header((name: "Range", value: "bytes=999999-"))], body: ""))
+doAssert unsatisfiable.status == 416
+doAssert unsatisfiable.header("Content-Range") == "bytes */" &
+    $fullAsset.body.len
 
 let head = handler(AssetRequest(scheme: "viewy", httpMethod: "HEAD",
   path: "/assets/app.js", query: "", headers: @[], body: ""))

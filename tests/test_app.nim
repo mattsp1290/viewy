@@ -26,6 +26,8 @@ var
   initSeen = ""
   htmlSeen = ""
   navigatedTo = ""
+  registeredScheme = ""
+  registeredAssetPath = ""
   boundNames: seq[string]
   boundCallbacks: seq[BindCallback]
   resolvedIds: seq[string]
@@ -84,6 +86,21 @@ proc fakeNavigate(h: BackendHandle; url: string) =
   doAssert h == fakeHandle
   navigatedTo = url
 
+proc fakeRegisterScheme(h: BackendHandle; scheme: string;
+    handler: AssetHandler) =
+  doAssert h == fakeHandle
+  registeredScheme = scheme
+  let response = handler(AssetRequest(
+    scheme: scheme,
+    httpMethod: "POST",
+    path: "/assets/app.js",
+    query: "v=1",
+    headers: @[(name: "Accept", value: "*/*")],
+    body: "payload",
+  ))
+  doAssert response.status == 200
+  registeredAssetPath = response.body
+
 proc fakeSetHtml(h: BackendHandle; html: string) =
   doAssert h == fakeHandle
   htmlSeen = html
@@ -124,6 +141,8 @@ let fakeBackend = Backend(
   bindFn: fakeBindFn,
   unbind: fakeUnbind,
   resolve: fakeResolve,
+  caps: {capScheme},
+  registerSchemeImpl: fakeRegisterScheme,
 )
 
 let compileOnlyAssetHandler =
@@ -142,6 +161,8 @@ proc resetState() =
   initSeen = ""
   htmlSeen = ""
   navigatedTo = ""
+  registeredScheme = ""
+  registeredAssetPath = ""
   boundNames.setLen 0
   boundCallbacks.setLen 0
   resolvedIds.setLen 0
@@ -204,6 +225,29 @@ doAssert htmlSeen == ""
 doAssert navigatedTo == "http://127.0.0.1:7777"
 
 resetState()
+
+when selectedBackend == "native":
+  let schemeHandler =
+    proc(request: AssetRequest): AssetResponse {.gcsafe.} =
+      doAssert request.scheme == "viewy"
+      doAssert request.httpMethod == "POST"
+      doAssert request.path == "/assets/app.js"
+      doAssert request.query == "v=1"
+      doAssert request.body == "payload"
+      assetResponse(200, "OK", "text/javascript; charset=utf-8", request.path)
+
+  let schemeApp = newApp(assets = assetsScheme, assetHandler = schemeHandler,
+      backend = fakeBackend)
+  schemeApp.run()
+
+  doAssert destroyed
+  doAssert registeredScheme == "viewy"
+  doAssert registeredAssetPath == "/assets/app.js"
+  doAssert navigatedTo == "viewy://app/"
+  doAssert htmlSeen == ""
+
+  resetState()
+
 runShouldRaise = true
 
 let failingApp = newApp(backend = fakeBackend)

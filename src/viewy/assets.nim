@@ -56,6 +56,8 @@ type
       ## Absolute route path for the asset, for example `/index.html`.
     contentType*: string
       ## Content type returned for this asset.
+    etag*: string
+      ## Optional cache validator returned as the ETag header.
     gzipBytes*: string
       ## Gzip-compressed response body bytes.
 
@@ -135,6 +137,16 @@ proc generatedSchemeDocumentPath*(): string =
     normalizeAssetPath(viewy_assets.viewySchemeDocumentPath)
   else:
     "/index.html"
+
+proc generatedSchemeAssetTable*(): seq[AssetTableItem] =
+  ## Return generated scheme assets in the generic `AssetHandler` table shape.
+  for item in generatedSchemeAssets():
+    result.add AssetTableItem(
+      path: item.path,
+      contentType: item.mimeType,
+      etag: item.etag,
+      gzipBytes: item.gzipBytes,
+    )
 
 proc isHexDigit(c: char): bool =
   c in {'0' .. '9', 'a' .. 'f', 'A' .. 'F'}
@@ -231,6 +243,52 @@ proc hasAssetHeader*(headers: openArray[Header]; name: string): bool =
     if cmpIgnoreCase(header.name, name) == 0:
       return true
 
+proc assetHeader(headers: openArray[Header]; name: string): string =
+  for header in headers:
+    if cmpIgnoreCase(header.name, name) == 0:
+      return header.value
+
+proc acceptsHtml(headers: openArray[Header]): bool =
+  let accept = headers.assetHeader("Accept")
+  accept.len == 0 or accept.contains("*/*") or accept.contains("text/html")
+
+proc hasFileExtension(path: string): bool =
+  let slash = path.rfind('/')
+  let dot = path.rfind('.')
+  dot > slash
+
+proc rangeResponse(rangeHeader: string; total: int): tuple[ok: bool;
+    satisfiable: bool; first, last: int] =
+  if not rangeHeader.startsWith("bytes=") or total <= 0:
+    return (false, false, 0, 0)
+  let spec = rangeHeader[6 .. ^1].strip
+  if spec.len == 0 or spec.contains(','):
+    return (false, false, 0, 0)
+  let dash = spec.find('-')
+  if dash < 0:
+    return (false, false, 0, 0)
+
+  let startText = spec[0 ..< dash].strip
+  let endText = spec[(dash + 1) .. ^1].strip
+  try:
+    if startText.len == 0:
+      let suffix = parseInt(endText)
+      if suffix <= 0:
+        return (true, false, 0, 0)
+      result.first = max(0, total - suffix)
+      result.last = total - 1
+    else:
+      result.first = parseInt(startText)
+      result.last =
+        if endText.len == 0: total - 1 else: parseInt(endText)
+      if result.last >= total:
+        result.last = total - 1
+    result.ok = true
+    result.satisfiable = result.first >= 0 and result.first <= result.last and
+      result.first < total
+  except ValueError:
+    result = (false, false, 0, 0)
+
 proc rewriteServedDocumentResponse*(response: var AssetResponse;
     prefix: string) =
   ## Apply loopback served-mode root-absolute URL rewriting to a document.
@@ -263,18 +321,46 @@ proc assetTableHandler*(assets: openArray[AssetTableItem];
       return assetResponse(400, "Bad Request", "text/plain; charset=utf-8",
         "bad request", [Header((name: "Cache-Control", value: "no-store"))])
     let requestPath = canonical.path
-    let assetPath = if requestPath == "/": normalizedDocumentPath else: requestPath
+    var assetPath = if requestPath == "/": normalizedDocumentPath else: requestPath
+    if not table.hasKey(assetPath) and request.httpMethod in ["GET", "HEAD"] and
+        not assetPath.hasFileExtension and request.headers.acceptsHtml:
+      assetPath = normalizedDocumentPath
     if not table.hasKey(assetPath):
       return assetResponse(404, "Not Found", "text/plain; charset=utf-8",
         "not found", [Header((name: "Cache-Control", value: "no-store"))])
 
     let asset = table[assetPath]
     var responseBytes = asset.gzipBytes
+    var
+      status = 200
+      statusText = "OK"
+      headers = @[
+        Header((name: "Content-Encoding", value: "gzip")),
+        Header((name: "Cache-Control", value: "no-store")),
+        Header((name: "Accept-Ranges", value: "bytes")),
+      ]
+    if asset.etag.len > 0:
+      headers.add Header((name: "ETag", value: asset.etag))
+
+    let range = request.headers.assetHeader("Range")
+    if range.len > 0 and request.httpMethod in ["GET", "HEAD"]:
+      let parsed = range.rangeResponse(responseBytes.len)
+      if parsed.ok and parsed.satisfiable:
+        responseBytes = responseBytes[parsed.first .. parsed.last]
+        status = 206
+        statusText = "Partial Content"
+        headers.add Header((name: "Content-Range", value: "bytes " &
+          $parsed.first & "-" & $parsed.last & "/" & $asset.gzipBytes.len))
+      elif parsed.ok:
+        return assetResponse(416, "Range Not Satisfiable",
+          "text/plain; charset=utf-8", "", [
+            Header((name: "Cache-Control", value: "no-store")),
+            Header((name: "Content-Range", value: "bytes */" &
+            $asset.gzipBytes.len)),
+          ])
+
     let content = if request.httpMethod == "HEAD": "" else: responseBytes
-    result = assetResponse(200, "OK", asset.contentType, content, [
-      Header((name: "Content-Encoding", value: "gzip")),
-      Header((name: "Cache-Control", value: "no-store")),
-    ])
+    result = assetResponse(status, statusText, asset.contentType, content, headers)
     if assetPath == normalizedDocumentPath and rewritePrefix.len > 0 and
         request.httpMethod != "HEAD":
       result.rewriteServedDocumentResponse(rewritePrefix)
