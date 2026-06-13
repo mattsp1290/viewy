@@ -29,7 +29,7 @@ jobs:
         run: nimble install -d -y
 
       - name: nim doc project
-        run: nim doc --project --hints:off --outdir:build/docs src/viewy.nim
+        run: nim doc --project --hints:off -d:viewyBackend=lite --outdir:build/docs src/viewy.nim
 
   test:
     strategy:
@@ -79,13 +79,13 @@ jobs:
         run: nimble check
 
       - name: nim check library root
-        run: nim check --hints:off src/viewy.nim
+        run: nim check --hints:off -d:viewyBackend=lite src/viewy.nim
 
       - name: nim doc library root
-        run: nim doc --hints:off src/viewy.nim
+        run: nim doc --hints:off -d:viewyBackend=lite src/viewy.nim
 
       - name: Run dev-mode strdefine test
-        run: nim c --hints:off --mm:orc --threads:on -d:viewyDev=http://127.0.0.1:5174 -r tests/test_app_dev.nim
+        run: nim c --hints:off --mm:orc --threads:on -d:viewyBackend=lite -d:viewyDev=http://127.0.0.1:5174 -r tests/test_app_dev.nim
 
       - name: Create build directory
         run: python -c "import os; os.makedirs('build', exist_ok=True)"
@@ -303,7 +303,7 @@ jobs:
         working-directory: examples/hello
         run: |
           python -c "import os; os.makedirs('build', exist_ok=True)"
-          nim c --hints:off -d:release --mm:orc --threads:on -d:strip --opt:size -o:build/hello src/main.nim
+          nim c --hints:off -d:viewyBackend=lite -d:release --mm:orc --threads:on -d:strip --opt:size -o:build/hello src/main.nim
           size=$(stat -c %s build/hello)
           echo "hello release binary size: ${size} bytes"
           test "$size" -lt 3145728
@@ -313,7 +313,7 @@ jobs:
         working-directory: examples/todo
         run: |
           python -c "import os; os.makedirs('build', exist_ok=True)"
-          nim c --hints:off --mm:orc --threads:on -o:build/todo src/main.nim
+          nim c --hints:off -d:viewyBackend=lite --mm:orc --threads:on -o:build/todo src/main.nim
 
       - name: Run tests (xvfb)
         if: runner.os == 'Linux'
