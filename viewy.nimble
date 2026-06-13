@@ -1,10 +1,10 @@
 # Package
 
-version       = "0.1.0"
-author        = "Matt Spurlin"
-description   = "A Tauri/Wails-style desktop app framework for Nim"
-license       = "MIT"
-srcDir        = "src"
+version = "0.1.0"
+author = "Matt Spurlin"
+description = "A Tauri/Wails-style desktop app framework for Nim"
+license = "MIT"
+srcDir = "src"
 
 # Dependencies
 # Keep this list ruthless (spec §9): jsony for the RPC/JSON codec,
@@ -14,10 +14,24 @@ requires "nim >= 2.0.0"
 requires "jsony == 1.1.6"
 requires "zippy == 0.10.19"
 
-import std/os
+import std/[os, strutils]
 
-task pretty, "Run nimpretty over the source tree (not yet gating in CI)":
-  for root in ["src", "tests"]:
+task pretty, "Run nimpretty over Nim source files checked by CI":
+  proc shouldFormat(path: string): bool =
+    path.endsWith(".nim") or path.endsWith(".nimble")
+
+  proc shouldSkip(path: string): bool =
+    let normalized = path.replace("\\", "/")
+    normalized.startsWith("tests/fixtures/") or
+      normalized.contains("/node_modules/") or
+      normalized.contains("/dist/") or
+      normalized.contains("/build/") or
+      normalized.contains("/.vite/")
+
+  for f in ["viewy.nimble", "cli/viewy_cli.nimble"]:
+    exec "nimpretty " & f
+
+  for root in ["src", "cli/src", "cli/templates", "cli/tests", "tests", "examples"]:
     for f in walkDirRec(root):
-      if f.endsWith(".nim"):
+      if shouldFormat(f) and not shouldSkip(f):
         exec "nimpretty " & f

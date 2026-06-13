@@ -13,7 +13,8 @@ proc buildError(message: string): ref BuildError =
 proc quote(path: string): string =
   quoteShell(path)
 
-proc defaultExec(command, workingDir: string): tuple[output: string; exitCode: int] =
+proc defaultExec(command, workingDir: string): tuple[output: string;
+    exitCode: int] =
   execCmdEx(command, workingDir = workingDir)
 
 proc viewyModulePath(packagePath: string): string =

@@ -47,7 +47,7 @@ docs/                   # spec, protocol, architecture, limitations
 nimble check                        # package metadata sanity
 nim check --hints:off src/viewy.nim # type-check the library root
 nimble test                         # run the test suite
-nimble pretty                       # nimpretty over src/ and tests/
+nimble pretty                       # nimpretty over first-party Nim sources
 ```
 
 A root `nim.cfg` with `--path:"src"` is committed so editor language
