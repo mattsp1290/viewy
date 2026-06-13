@@ -330,4 +330,5 @@ proc newBackend*(): Backend =
     bindFn: bindFn,
     unbind: unbind,
     resolve: resolve,
+    caps: {},
   )
