@@ -8,8 +8,12 @@ build/
 # Compiled test binaries (nimble test output)
 tests/tviewy
 cli/viewy
+cli/tests/test_build
 cli/tests/test_config
+cli/tests/test_dev
+cli/tests/test_doctor
 cli/tests/test_dispatch
+cli/tests/test_e2e
 cli/tests/test_init
 
 # Agent review artifacts

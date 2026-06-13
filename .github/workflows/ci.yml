@@ -322,6 +322,11 @@ jobs:
         working-directory: cli
         run: nimble check
 
+      - name: Run viewy doctor (informational)
+        working-directory: cli
+        continue-on-error: true
+        run: nim c --path:src -r src/viewy.nim doctor
+
       - name: Run CLI tests (xvfb)
         if: runner.os == 'Linux'
         working-directory: cli
