@@ -127,7 +127,13 @@ threads.
 The runtime registry exposes metadata as JSON through `dumpBindingsJson()`. The
 compile-time dump mode `-d:viewyDumpBindings` emits one metadata object per line
 while compiling modules that use `expose`; consumers should parse it as
-newline-delimited JSON.
+newline-delimited JSON. The compile-time stream and runtime registry expose the
+same object schema, but they use different containers:
+
+- `-d:viewyDumpBindings` prints NDJSON to standard output, one object for each
+  `expose` instantiation as it is compiled.
+- `dumpBindingsJson()` returns a JSON array of the registered metadata objects
+  for the current process.
 
 Each metadata object has this shape:
 
@@ -148,16 +154,29 @@ Fields:
 - `name`: exposed JavaScript binding name.
 - `params`: ordered parameter metadata. Runtime calls still use positional args.
 - `params[].name`: Nim parameter name as written in the `expose` signature.
-- `params[].typ`: Nim type representation used by the macro.
-- `returnType`: Nim return type representation exposed to tooling.
+- `params[].typ`: Nim type representation captured from the source signature by
+  the macro, for example `"string"`, `"int"`, `"Todo"`, or `"seq[Todo]"`.
+- `returnType`: Nim return type representation exposed to tooling. For async
+  bindings this is the unwrapped `Future[T]` value type.
 - `async`: `true` when the exposed return type is `Future[T]`; `returnType` is
   the unwrapped `T`.
 
 Void return metadata uses `"returnType": "void"`. `Future[void]` uses
 `"returnType": "void"` and `"async": true`.
 
+Representative compile-time output:
+
+```json
+{"name":"greet","params":[{"name":"name","typ":"string"}],"returnType":"string","async":false}
+{"name":"add","params":[{"name":"a","typ":"int"},{"name":"b","typ":"int"}],"returnType":"int","async":false}
+{"name":"save","params":[{"name":"todo","typ":"Todo"}],"returnType":"Todo","async":false}
+{"name":"countLater","params":[{"name":"todos","typ":"seq[Todo]"}],"returnType":"int","async":true}
+{"name":"flushLater","params":[],"returnType":"void","async":true}
+```
+
 The metadata schema is additive. Future tooling may add fields, but existing
-fields should remain stable.
+fields should remain stable. Consumers should ignore unknown fields and should
+not treat JSON object field order as semantic.
 
 ## Compatibility notes
 
