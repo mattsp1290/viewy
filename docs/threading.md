@@ -6,11 +6,29 @@ transferred to the UI thread by capture. `{.gcsafe.}` only says the callback may
 run while the GC is active; it does not make captured state safe to move between
 threads.
 
-This document refines the spec section 4.6 rule:
+This document refines the backend threading rule:
 
-- all backend operations except `dispatch` are main/UI-thread only;
-- worker-thread `emit` and deferred `resolve` must route through `dispatch`;
-- the handoff must not transfer Nim-managed closures across the thread boundary.
+- synchronous backend operations are main/UI-thread only;
+- generic closure `dispatch` is limited to UI-thread-created work;
+- worker-thread `emit`, deferred `resolve`, and terminate requests must route
+  through typed handoff slots: `dispatchEval`, `dispatchResolve`, and
+  `dispatchTerminate`;
+- no typed handoff may transfer Nim-managed values across the thread boundary.
+
+## Binding invariant
+
+No Nim-managed value may cross a thread boundary by pointer, capture, userdata,
+or `GC_ref`. This includes `proc() {.closure.}`, `string`, `seq`, `ref`, object
+graphs containing managed fields, and backend-owned `App` or handle state.
+
+Every cross-thread backend path must instead copy the required data into
+unmanaged storage before scheduling a top-level callback. The callback may
+construct fresh Nim-managed values only after it is running on the destination
+thread that will own and release those values.
+
+This invariant is stronger than "the callback is `{.gcsafe.}`" and stronger
+than "the object was `GC_ref`'d". Under ORC, moving managed objects between
+worker and UI threads is a memory safety bug class, not an annotation issue.
 
 ## Decision
 
@@ -35,6 +53,27 @@ added later if the public API needs a general-purpose cross-thread queue, but
 the Phase 1 requirements primarily need two typed message paths: event emission
 and RPC promise resolution. The backend also provides a small terminate handoff
 for stress tests and shutdown paths.
+
+## Callback domains
+
+There are two callback domains, and they use different ownership rules:
+
+- Worker-to-UI features such as `emit`, deferred RPC `resolve`, and worker-safe
+  termination are cross-thread paths. They must use typed unmanaged payloads
+  (`dispatchEval`, `dispatchResolve`, `dispatchTerminate`) and top-level
+  `{.cdecl, gcsafe.}` callbacks. Only bytes and plain fields cross.
+- UI-thread backend callbacks such as custom scheme handlers, menu/tray item
+  dispatch, and window lifecycle events may invoke Nim closures with
+  Nim-managed request/response values only when the native event has already
+  been copied onto the backend UI thread. If a platform receives one of those
+  native events on another thread, that platform backend must first perform an
+  unmanaged handoff to the UI thread, then build the Nim `AssetRequest`,
+  `MenuItem` id, or `WindowEvent` there.
+
+Backend implementations must not mix these models. Scheme/menu/window callback
+APIs are ergonomic Nim closures at the UI-thread boundary; they are not a
+permission to move those closures or their captured state across native worker
+threads.
 
 ## Payload shape
 
@@ -154,6 +193,9 @@ app wiring should arrange an equivalent pump around the blocking backend
   freeing the unmanaged payload.
 - No `proc() {.closure.}`, `string`, `seq`, `ref`, or other ORC-managed object
   may be stored in `HandoffPayload`.
+- `GC_ref` is not an accepted cross-thread ownership transfer mechanism for
+  viewy backend callbacks. Backend userdata that crosses threads must be
+  unmanaged or plain data whose lifetime is explicit outside ORC.
 
 The generic backend `dispatch(h, fn: DispatchProc)` is still useful for
 main-thread-created work, but app-level cross-thread features must use the typed
@@ -191,6 +233,8 @@ UI-thread callbacks still guard native operations against a destroyed handle.
   freeing a partially-built payload, so allocation failures do not leak.
 - Keep generic closure dispatch limited to UI-thread-created work; cross-thread
   app operations must use typed handoff helpers.
-- Stress testing belongs in the later handoff test bead: worker threads should
-  schedule many emits while the UI loop runs, then terminate under an outer
-  watchdog.
+- Validation belongs in the CI valgrind bead: `test_emit_stress` plus a
+  scheme-flood test should pass under `--mm:orc -d:useMalloc` and valgrind on
+  Linux with zero Valgrind errors and zero definitely-lost leaks. Until that
+  job exists, local stress tests are useful smoke coverage but are not the
+  memory safety acceptance bar.
