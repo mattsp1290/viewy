@@ -97,7 +97,10 @@ jobs:
 
       - name: Check native Linux backend lifecycle
         if: runner.os == 'Linux'
-        run: nim c --hints:off --mm:orc --threads:on -r tests/native/test_linux_backend.nim
+        run: |
+          mkdir -p build
+          nim c --hints:off --mm:orc --threads:on -o:build/test_linux_backend tests/native/test_linux_backend.nim
+          VIEWY_NATIVE_LINUX_SMOKE=1 xvfb-run -a build/test_linux_backend
 
       - name: Create build directory
         run: python -c "import os; os.makedirs('build', exist_ok=True)"

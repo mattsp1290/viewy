@@ -73,6 +73,28 @@ type
     y*: cint
     width*: cint
     height*: cint
+  GdkGeometry* {.importc: "GdkGeometry", header: "gdk/gdk.h", bycopy.} = object
+    minWidth* {.importc: "min_width".}: cint
+    minHeight* {.importc: "min_height".}: cint
+    maxWidth* {.importc: "max_width".}: cint
+    maxHeight* {.importc: "max_height".}: cint
+    baseWidth* {.importc: "base_width".}: cint
+    baseHeight* {.importc: "base_height".}: cint
+    widthInc* {.importc: "width_inc".}: cint
+    heightInc* {.importc: "height_inc".}: cint
+    minAspect* {.importc: "min_aspect".}: cdouble
+    maxAspect* {.importc: "max_aspect".}: cdouble
+    winGravity* {.importc: "win_gravity".}: cint
+  GdkWindowHints* {.size: sizeof(cint).} = enum
+    gdkHintPos = 1
+    gdkHintMinSize = 2
+    gdkHintMaxSize = 4
+    gdkHintBaseSize = 8
+    gdkHintAspect = 16
+    gdkHintResizeInc = 32
+    gdkHintWinGravity = 64
+    gdkHintUserPos = 128
+    gdkHintUserSize = 256
   GtkAccelGroup* {.importc: "GtkAccelGroup", header: "gtk/gtk.h",
       incompleteStruct.} = object
   GtkAccelFlags* {.size: sizeof(cint).} = enum
@@ -305,6 +327,10 @@ proc gtkWindowResize*(window: ptr GtkWindow; width, height: cint)
 
 proc gtkWindowSetDefaultSize*(window: ptr GtkWindow; width, height: cint)
   {.importc: "gtk_window_set_default_size", header: "gtk/gtk.h", cdecl.}
+
+proc gtkWindowSetGeometryHints*(window: ptr GtkWindow;
+    geometryWidget: ptr GtkWidget;geometry: ptr GdkGeometry; geomMask: cint)
+  {.importc: "gtk_window_set_geometry_hints", header: "gtk/gtk.h", cdecl.}
 
 proc gtkWindowSetPosition*(window: ptr GtkWindow; position: GtkWindowPosition)
   {.importc: "gtk_window_set_position", header: "gtk/gtk.h", cdecl.}

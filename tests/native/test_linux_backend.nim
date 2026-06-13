@@ -1,6 +1,8 @@
 when not defined(linux):
   echo "skipped linux native backend: non-linux host"
 else:
+  import std/os
+
   import viewy/backend/api
   import viewy/backend/native/linux/backend
 
@@ -35,5 +37,32 @@ else:
     nativeBackend.init(handle, "globalThis.viewy = true")
     nativeBackend.dispatch(handle, proc() {.gcsafe.} = discard)
     nativeBackend.dispatchTerminate(handle)
+
+  proc terminateFromWorker(h: BackendHandle) {.thread.} =
+    newBackend().dispatchTerminate(h)
+
+  proc smokeMainThreadTerminate() =
+    let h = nativeBackend.create(false)
+    nativeBackend.setTitle(h, "Viewy")
+    nativeBackend.setSize(h, 320, 240, whMin)
+    nativeBackend.setHtml(h, "<html><body>viewy native linux</body></html>")
+    nativeBackend.dispatchTerminate(h)
+    nativeBackend.run(h)
+    nativeBackend.destroy(h)
+
+  proc smokeWorkerTerminate() =
+    let h = nativeBackend.create(false)
+    nativeBackend.setTitle(h, "Viewy worker")
+    nativeBackend.setSize(h, 360, 260, whFixed)
+    nativeBackend.navigate(h, "about:blank")
+    var worker: Thread[BackendHandle]
+    createThread(worker, terminateFromWorker, h)
+    nativeBackend.run(h)
+    joinThread(worker)
+    nativeBackend.destroy(h)
+
+  if getEnv("VIEWY_NATIVE_LINUX_SMOKE") == "1":
+    smokeMainThreadTerminate()
+    smokeWorkerTerminate()
 
   echo "ok: linux native backend declarations"
