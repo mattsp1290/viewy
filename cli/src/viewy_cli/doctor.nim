@@ -137,22 +137,30 @@ proc checkLinuxWebKit(probe: DoctorProbe): seq[CheckResult] =
   result.add ok("pkg-config", "found " & pkgConfig.output.firstNonEmptyLine())
   let webkit41 = probe.exec.run("pkg-config --exists gtk+-3.0 webkit2gtk-4.1")
   if webkit41.exitCode == 0:
-    result.add ok("WebKitGTK native",
-      "found gtk+-3.0 + webkit2gtk-4.1 for native Linux")
-  else:
-    result.add fail("WebKitGTK native",
-      "gtk+-3.0 + webkit2gtk-4.1 not found",
-      "Install libgtk-3-dev with libwebkit2gtk-4.1-dev. GTK4/webkitgtk-6.0 is only for -d:viewyBackend=lite -d:viewyGtk4.")
+    let webkit41Version = probe.exec.run(
+        "pkg-config --atleast-version=2.40 webkit2gtk-4.1")
+    if webkit41Version.exitCode == 0:
+      result.add ok("WebKitGTK native",
+        "found gtk+-3.0 + webkit2gtk-4.1 >= 2.40")
+      return
+    result.add ok("WebKitGTK lite",
+      "found gtk+-3.0 + webkit2gtk-4.1; native Linux requires webkit2gtk-4.1 >= 2.40")
+    return
 
   let webkitGtk6 = probe.exec.run("pkg-config --exists gtk4 webkitgtk-6.0")
   if webkitGtk6.exitCode == 0:
     result.add ok("WebKitGTK lite GTK4",
       "found gtk4 + webkitgtk-6.0 for -d:viewyBackend=lite -d:viewyGtk4")
+    return
 
   let webkit40 = probe.exec.run("pkg-config --exists gtk+-3.0 webkit2gtk-4.0")
   if webkit40.exitCode == 0:
     result.add ok("WebKitGTK lite GTK3 fallback",
       "found gtk+-3.0 + webkit2gtk-4.0 for -d:viewyBackend=lite")
+  else:
+    result.add fail("WebKitGTK",
+      "native gtk+-3.0 + webkit2gtk-4.1, lite gtk+-3.0 + webkit2gtk-4.0, or lite gtk4 + webkitgtk-6.0 not found",
+      "Install libgtk-3-dev with libwebkit2gtk-4.1-dev. GTK4/webkitgtk-6.0 is only for -d:viewyBackend=lite -d:viewyGtk4.")
 
 proc checkMacosClt(probe: DoctorProbe): CheckResult =
   let probeResult = probe.exec.run("xcode-select -p")

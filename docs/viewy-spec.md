@@ -223,7 +223,7 @@ viewy/
 | webview/webview lacks custom schemes, menus, tray | Asset strategy A/B (§4.5); document limitations; backend abstraction enables native backend later |
 | Windows MinGW vs VCC pain (C++14, WebView2 SDK) | Use built-in WebView2 loader; CI matrix covers both MinGW and VCC; document in README |
 | Nim `--mm:orc` + threads + C callbacks (GC safety) | All callbacks `{.gcsafe.}`; route cross-thread work through `dispatch`; debug-mode thread assertions |
-| Linux webkit2gtk version fragmentation (4.0/4.1/6.0) | pkg-config probe with clear error message; `-d:viewyGtk4` opt-in |
+| Linux WebKitGTK version fragmentation (4.0/4.1/6.0) | Native Linux requires GTK3 + `webkit2gtk-4.1`; lite keeps the `webkit2gtk-4.0` fallback and `-d:viewyGtk4` opt-in |
 | Vite child-process management cross-platform | Use `osproc` with process groups; test Ctrl-C handling on all OSes |
 | Name collisions on nimble | Check nimble.directory before first publish |
 

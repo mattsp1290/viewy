@@ -6,6 +6,9 @@
 import ./gtk_ffi
 export gtk_ffi
 
+when defined(viewyGtk4):
+  {.error: "-d:viewyGtk4 is only supported with -d:viewyBackend=lite; native Linux uses GTK3 + webkit2gtk-4.1".}
+
 when defined(linux) and not defined(nimcheck):
   import std/strutils
 

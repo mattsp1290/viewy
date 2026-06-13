@@ -46,6 +46,14 @@ discard newBackend()
     check exitCode != 0
     check output.contains("-d:viewyGtk4 is only supported")
 
+  test "direct native Linux backend import rejects gtk4 flag":
+    let (output, exitCode) = nimCheck("""
+import viewy/backend/native/linux/backend
+discard newBackend()
+""", "--os:linux -d:nimcheck -d:viewyGtk4")
+    check exitCode != 0
+    check output.contains("-d:viewyGtk4 is only supported")
+
   test "unsupported backend value fails clearly":
     let (output, exitCode) = nimCheck("""
 import viewy/backend/select

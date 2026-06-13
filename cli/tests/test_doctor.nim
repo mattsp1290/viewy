@@ -26,6 +26,7 @@ suite "viewy doctor":
     let fake = baseline()
     fake.outputs["pkg-config --version"] = ("1.9.5\n", 0)
     fake.outputs["pkg-config --exists gtk+-3.0 webkit2gtk-4.1"] = ("", 0)
+    fake.outputs["pkg-config --atleast-version=2.40 webkit2gtk-4.1"] = ("", 0)
 
     let result = runDoctor(probe(dtLinux, fake))
 
@@ -33,21 +34,33 @@ suite "viewy doctor":
     check result.output.contains("OK   Nim")
     check result.output.contains("OK   Node")
     check result.output.contains("WebKitGTK native")
+    check result.output.contains(">= 2.40")
     check result.output.contains("webkit2gtk-4.1")
 
-  test "GTK4 webkitgtk 6 is lite-only and does not satisfy native Linux":
+  test "older Linux webkit2gtk 4.1 is lite-only":
+    let fake = baseline()
+    fake.outputs["pkg-config --version"] = ("1.9.5\n", 0)
+    fake.outputs["pkg-config --exists gtk+-3.0 webkit2gtk-4.1"] = ("", 0)
+    fake.outputs["pkg-config --atleast-version=2.40 webkit2gtk-4.1"] = ("", 1)
+
+    let result = runDoctor(probe(dtLinux, fake))
+
+    check result.ok
+    check result.output.contains("OK   WebKitGTK lite")
+    check result.output.contains("native Linux requires webkit2gtk-4.1 >= 2.40")
+
+  test "GTK4 webkitgtk 6 is lite-only":
     let fake = baseline()
     fake.outputs["pkg-config --version"] = ("1.9.5\n", 0)
     fake.outputs["pkg-config --exists gtk4 webkitgtk-6.0"] = ("", 0)
 
     let result = runDoctor(probe(dtLinux, fake))
 
-    check not result.ok
-    check result.output.contains("FAIL WebKitGTK native")
+    check result.ok
     check result.output.contains("OK   WebKitGTK lite GTK4")
     check result.output.contains("webkitgtk-6.0")
 
-  test "Linux webkit2gtk 4.0 is lite-only and does not satisfy native Linux":
+  test "Linux webkit2gtk 4.0 is lite-only":
     let fake = baseline()
     fake.outputs["pkg-config --version"] = ("1.9.5\n", 0)
     fake.outputs["pkg-config --exists gtk+-3.0 webkit2gtk-4.1"] = ("", 1)
@@ -55,8 +68,7 @@ suite "viewy doctor":
 
     let result = runDoctor(probe(dtLinux, fake))
 
-    check not result.ok
-    check result.output.contains("FAIL WebKitGTK native")
+    check result.ok
     check result.output.contains("OK   WebKitGTK lite GTK3 fallback")
     check result.output.contains("webkit2gtk-4.0")
 
