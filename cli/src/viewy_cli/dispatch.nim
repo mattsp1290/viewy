@@ -1,11 +1,11 @@
 import std/[os, parseopt, strutils]
 
-import viewy_cli/assets_gen
-import viewy_cli/build
-import viewy_cli/config
-import viewy_cli/dev
-import viewy_cli/doctor
-import viewy_cli/init
+import assets_gen
+import build
+import config
+import dev
+import doctor
+import init
 
 const CliVersion* = "0.1.0"
 

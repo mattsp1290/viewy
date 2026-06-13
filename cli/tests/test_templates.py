@@ -53,7 +53,7 @@ def assert_self_contained_index(app_dir):
 def build_template(template, tmpdir):
     app = f"viewy-{template}-ci"
     env = os.environ.copy()
-    env["VIEWY_TEMPLATE_ROOT"] = str(CLI_DIR / "templates")
+    env["VIEWY_TEMPLATE_ROOT"] = str(CLI_DIR / "src" / "viewy_cli" / "templates")
     env["VIEWY_LIB_SRC"] = str(REPO_ROOT)
 
     run([str(VIEWY), "init", app, "--template", template], cwd=tmpdir, env=env)

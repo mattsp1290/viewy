@@ -183,7 +183,7 @@ viewy/
   src/viewy/backend/{api.nim, wv/...}
   vendor/webview/         # pinned amalgamated webview source
   cli/                    # viewy_cli.nimble, bin
-  cli/templates/{vanilla,svelte,react}/
+  cli/src/viewy_cli/templates/{vanilla,svelte,react}/
   examples/{hello,todo}/
   tests/
   docs/{protocol.md, architecture.md, limitations.md}

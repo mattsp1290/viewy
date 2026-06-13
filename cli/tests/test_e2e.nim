@@ -5,7 +5,7 @@ const CommandTimeoutMs = 180_000
 let
   cliRoot = getCurrentDir()
   repoRoot = parentDir(cliRoot)
-  templateRoot = cliRoot / "templates"
+  templateRoot = cliRoot / "src" / "viewy_cli" / "templates"
 
 proc exeName(name: string): string =
   when defined(windows):

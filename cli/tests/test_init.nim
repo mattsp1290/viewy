@@ -2,7 +2,7 @@ import std/[os, strutils, tempfiles, unittest]
 
 import viewy_cli/init
 
-let templateRoot = getCurrentDir() / "templates"
+let templateRoot = getCurrentDir() / "src" / "viewy_cli" / "templates"
 
 suite "viewy init":
   test "copies and stamps vanilla template":

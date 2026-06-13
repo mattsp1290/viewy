@@ -5,8 +5,39 @@ for Go. Nim backend, HTML/CSS/JS frontend, rendered in the OS-native
 webview (WebKitGTK on Linux, WKWebView on macOS, Edge WebView2 on
 Windows). No bundled Chromium.
 
-> Early scaffold — the public API is not implemented yet. See
+> Pre-release package. The API is still settling; see
 > [docs/viewy-spec.md](docs/viewy-spec.md) for the full design.
+
+## Quickstart
+
+Install the runtime library and CLI:
+
+```bash
+nimble install viewy
+nimble install viewy_cli
+```
+
+Create and build a vanilla app:
+
+```bash
+viewy init my-app
+cd my-app
+npm ci
+viewy build --release
+```
+
+Use `--template react` or `--template svelte` with `viewy init` for the
+framework templates. `viewy build` runs the frontend build, generates
+`src/viewy_assets.nim`, compiles the Nim app with `--mm:orc --threads:on`, and
+prints the built binary path. On macOS it also writes a minimal `.app` bundle.
+
+From a checkout before the first public publish:
+
+```bash
+nimble install
+cd cli
+nimble install
+```
 
 ## Supported configuration
 
@@ -38,13 +69,14 @@ src/viewy/backend/      # backend abstraction + webview/webview backend (wv/)
 cli/                    # viewy CLI package (init/dev/build)
 examples/               # hello, todo
 tests/
-docs/                   # spec, protocol, architecture, limitations
+docs/                   # spec, protocol, architecture, limitations, release prep
 ```
 
 ## Development
 
 ```bash
 nimble check                        # package metadata sanity
+(cd cli && nimble check)            # CLI package metadata sanity
 nim check --hints:off src/viewy.nim # type-check the library root
 nimble test                         # run the test suite
 nimble pretty                       # nimpretty over first-party Nim sources

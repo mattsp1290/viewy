@@ -5,7 +5,9 @@ author = "Matt Spurlin"
 description = "Command-line tooling for viewy desktop apps"
 license = "MIT"
 srcDir = "src"
+paths = @["src"]
 bin = @["viewy"]
+installDirs = @["viewy_cli/templates"]
 
 requires "nim >= 2.0.0"
 requires "jsony == 1.1.6"
