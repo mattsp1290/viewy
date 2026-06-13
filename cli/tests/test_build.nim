@@ -82,7 +82,8 @@ suite "viewy build":
         nimMain: "src/main.nim"
       )
 
-      proc fakeExec(command, workingDir: string): tuple[output: string; exitCode: int] =
+      proc fakeExec(command, workingDir: string): tuple[output: string;
+          exitCode: int] =
         calls.add (command, workingDir)
         if command.startsWith("nim c "):
           createDir(dir / "build")
@@ -92,7 +93,8 @@ suite "viewy build":
             writeFile(dir / "build" / "demo", "binary")
         ("", 0)
 
-      let output = buildApp(cfg, release = true, projectDir = dir, exec = fakeExec)
+      let output = buildApp(cfg, release = true, projectDir = dir,
+          exec = fakeExec)
 
       check calls.len == 2
       check calls[0] == ("npm run build", dir / "frontend")
@@ -129,7 +131,8 @@ suite "viewy build":
         nimMain: "src/main.nim"
       )
 
-      proc fakeExec(command, workingDir: string): tuple[output: string; exitCode: int] =
+      proc fakeExec(command, workingDir: string): tuple[output: string;
+          exitCode: int] =
         calls.add (command, workingDir)
         if command.startsWith("nim c "):
           createDir(dir / "build")
@@ -173,7 +176,8 @@ suite "viewy build":
         nimMain: "src/main.nim"
       )
 
-      proc fakeExec(command, workingDir: string): tuple[output: string; exitCode: int] =
+      proc fakeExec(command, workingDir: string): tuple[output: string;
+          exitCode: int] =
         discard command
         discard workingDir
         ("", 0)

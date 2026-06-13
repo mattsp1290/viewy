@@ -112,7 +112,8 @@ proc compileDevApp*(cfg: ViewyConfig; projectDir = "."): string =
       message.add "\n" & output.strip
     raise devError(message)
   if not fileExists(compiled.binaryPath):
-    raise devError("nim did not produce expected binary: " & compiled.binaryPath)
+    raise devError("nim did not produce expected binary: " &
+        compiled.binaryPath)
   compiled.binaryPath
 
 var stopRequested {.global.}: bool
