@@ -102,6 +102,11 @@ The bearer form exists for headless tests and future tooling. The webview path
 should use the HTTP-set cookie. JavaScript should not need to read the cookie,
 so the cookie can be `HttpOnly`.
 
+This token/cookie machinery is retained only for lite served mode because it
+protects a loopback HTTP port. Native scheme handlers such as `viewy://` and
+`https://viewy.localhost/` do not use loopback tokens, bearer auth, served-mode
+cookies, or served-mode root-absolute URL rewriting.
+
 All non-document routes require the session credential and return `401` without
 it. This includes static assets and any future HTTP-backed RPC endpoint. RPC
 errors still use the structured protocol envelope from `docs/protocol.md`; auth

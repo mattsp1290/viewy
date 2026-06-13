@@ -108,13 +108,17 @@ proc textHeaders(): HttpHeaders =
 proc respondText(req: Request; code: HttpCode; message: string): Future[void] =
   req.respond(code, message, textHeaders())
 
-proc routeAssetPath(s: ServedServer; requestPath: string): string =
+proc routeAssetPath(s: ServedServer; requestPath: string): tuple[matched: bool;
+    bad: bool; path: string] =
   let base = "/" & s.prefix
   if requestPath == base or requestPath == base & "/":
-    return s.documentPath
+    return (true, false, s.documentPath)
   if requestPath.startsWith(base & "/"):
-    return normalizeAssetPath(requestPath[(base.len + 1) .. ^1])
-  ""
+    let canonical = canonicalizeAssetRequestPath(requestPath[(base.len + 1) .. ^1])
+    if not canonical.ok:
+      return (true, true, "")
+    return (true, false, canonical.path)
+  (false, false, "")
 
 proc isDocumentRoute(s: ServedServer; requestPath, assetPath: string): bool =
   let base = "/" & s.prefix
@@ -175,10 +179,14 @@ proc handleRequest(s: ServedServer; req: Request): Future[void] {.async, gcsafe.
       ]))
     return
 
-  let assetPath = s.routeAssetPath(req.url.path)
-  if assetPath.len == 0:
+  let route = s.routeAssetPath(req.url.path)
+  if route.bad:
+    await req.respondText(Http400, "bad request")
+    return
+  if not route.matched:
     await req.respondText(Http401, "unauthorized")
     return
+  let assetPath = route.path
   var setCookie = ""
   if s.isDocumentRoute(req.url.path, assetPath) and not hasSession:
     let token = findQueryParam(req.url.query, "viewy_token")
