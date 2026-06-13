@@ -1,5 +1,7 @@
 import std/[os, strutils]
 
+const SupportedTemplates* = ["vanilla", "react"]
+
 type
   InitError* = object of CatchableError
 
@@ -30,6 +32,7 @@ proc stampFile(path, appName: string) =
   text = text.replace("viewy-app", appName)
   text = text.replace("viewy app", title)
   text = text.replace("viewy-vanilla-template", appName)
+  text = text.replace("viewy-react-template", appName)
   text = text.replace("viewy_app.nimble", pkg & ".nimble")
   text = text.replace("A viewy desktop app", "A viewy desktop app: " & title)
   writeFile(path, text)
@@ -74,8 +77,9 @@ proc defaultTemplateRoot(): string =
 
 proc initProject*(name: string; templateName = "vanilla"; destRoot = ".";
     templateRoot = ""): string =
-  if templateName != "vanilla":
-    raise initError("unknown template: " & templateName & " (supported: vanilla)")
+  if templateName notin SupportedTemplates:
+    raise initError("unknown template: " & templateName &
+      " (supported: " & SupportedTemplates.join(", ") & ")")
   if not isProjectName(name):
     raise initError("project name must use only letters, numbers, '_' or '-'")
 

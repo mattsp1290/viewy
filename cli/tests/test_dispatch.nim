@@ -19,11 +19,14 @@ suite "viewy dispatch":
     check cmd.name == "demo"
     check cmd.templateName == "vanilla"
 
+    let react = parseCommand(["init", "demo", "--template", "react"])
+    check react.kind == ckInit
+    check react.name == "demo"
+    check react.templateName == "react"
+
   test "rejects unknown template":
     expect DispatchError:
       discard parseCommand(["init", "demo", "--template", "solid"])
-    expect DispatchError:
-      discard parseCommand(["init", "demo", "--template", "react"])
 
   test "parses build release":
     let cmd = parseCommand(["build", "--release"])
