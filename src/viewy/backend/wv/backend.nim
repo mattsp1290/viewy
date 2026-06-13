@@ -321,6 +321,7 @@ proc newBackend*(): Backend =
     dispatch: dispatch,
     dispatchEval: dispatchEval,
     dispatchResolve: dispatchResolve,
+    dispatchTerminate: dispatchTerminate,
     setTitle: setTitle,
     setSize: setSize,
     navigate: navigate,

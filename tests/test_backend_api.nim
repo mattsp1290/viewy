@@ -9,6 +9,7 @@ var
   menuIds: seq[string]
   trayIds: seq[string]
   windowEvents: seq[WindowEventKind]
+  terminated = false
 
 proc fakeCreate(debug: bool): BackendHandle =
   doAssert not debug
@@ -29,6 +30,11 @@ proc fakeRegisterScheme(h: BackendHandle; scheme: string;
   doAssert response.status == 200
   doAssert response.mimeType == "text/html"
   assetPathSeen = response.body
+
+proc fakeDispatchTerminate(h: BackendHandle) {.gcsafe.} =
+  doAssert h == fakeHandle
+  {.cast(gcsafe).}:
+    terminated = true
 
 proc fakeSetAppMenu(h: BackendHandle; menu: seq[MenuItem];
     cb: MenuCallback) =
@@ -60,6 +66,7 @@ proc fakeOnWindowEvent(h: BackendHandle; cb: WindowEventCallback) =
 
 let fakeBackend = Backend(
   create: fakeCreate,
+  dispatchTerminate: fakeDispatchTerminate,
   caps: {capScheme, capMenu, capTray, capWindowEvents},
   registerScheme: fakeRegisterScheme,
   setAppMenu: fakeSetAppMenu,
@@ -70,6 +77,7 @@ let fakeBackend = Backend(
 )
 
 let h = fakeBackend.create(false)
+fakeBackend.dispatchTerminate(h)
 
 proc handleAsset(request: AssetRequest): AssetResponse {.gcsafe.} =
   doAssert request.scheme == "viewy"
@@ -133,6 +141,14 @@ proc handleWindowEvent(event: WindowEvent) {.gcsafe.} =
 fakeBackend.onWindowEvent(h, handleWindowEvent)
 
 doAssert capScheme in fakeBackend.caps
+doAssert fakeBackend.dispatchTerminate != nil
+doAssert fakeBackend.registerScheme != nil
+doAssert fakeBackend.setAppMenu != nil
+doAssert fakeBackend.trayCreate != nil
+doAssert fakeBackend.trayUpdate != nil
+doAssert fakeBackend.trayDestroy != nil
+doAssert fakeBackend.onWindowEvent != nil
+doAssert terminated
 doAssert schemeSeen == "viewy"
 doAssert assetPathSeen == "/index.html"
 doAssert menuIds == @["quit"]
@@ -141,6 +157,7 @@ doAssert windowEvents == @[weResize]
 
 let liteBackend = newBackend()
 doAssert liteBackend.caps == {}
+doAssert liteBackend.dispatchTerminate != nil
 doAssert liteBackend.registerScheme == nil
 doAssert liteBackend.setAppMenu == nil
 doAssert liteBackend.trayCreate == nil

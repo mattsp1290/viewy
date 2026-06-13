@@ -50,6 +50,10 @@ type
 
   AssetHandler* = proc(request: AssetRequest): AssetResponse {.closure, gcsafe.}
     ## Handler used by native scheme backends and the shared asset pipeline.
+    ## Backends invoke it on the backend UI thread only, with request
+    ## bytes/headers already copied into Nim-owned values on that thread. Nim
+    ## managed request/response objects must not be moved across worker or
+    ## native callback threads.
 
   MenuItemKind* = enum
     ## Native menu item shape.
@@ -70,7 +74,9 @@ type
     children*: seq[MenuItem]
 
   MenuCallback* = proc(id: string) {.closure, gcsafe.}
-    ## Callback invoked when a backend dispatches a menu or tray menu item id.
+    ## Callback invoked on the backend UI thread when a backend dispatches a
+    ## menu or tray menu item id. The id must be a Nim-owned copy of the native
+    ## event payload.
 
   TrayOptions* = object
     ## Backend-neutral system tray configuration.
@@ -94,7 +100,9 @@ type
     height*: int
 
   WindowEventCallback* = proc(event: WindowEvent) {.closure, gcsafe.}
-    ## Callback invoked by a backend for native window lifecycle events.
+    ## Callback invoked by a backend on the backend UI thread for native window
+    ## lifecycle events. Backends that receive lifecycle notifications on
+    ## another thread must use an unmanaged handoff before invoking it.
 
   Backend* = object
     create*: proc(debug: bool): BackendHandle {.closure.}
@@ -127,6 +135,11 @@ type
       ## Schedule completion of a JavaScript binding Promise from the UI thread
       ## or a worker thread. Implementations must copy string payloads into
       ## unmanaged storage before crossing threads.
+
+    dispatchTerminate*: proc(h: BackendHandle) {.closure, gcsafe.}
+      ## Request backend termination from the UI thread or a worker thread.
+      ## Implementations must use the same unmanaged handoff discipline as
+      ## `dispatchEval` and `dispatchResolve` before touching native handles.
 
     setTitle*: proc(h: BackendHandle, title: string) {.closure.}
       ## Main thread only. Set the native window title.
@@ -164,19 +177,26 @@ type
       ## such as 1 respectively.
 
     caps*: set[Capability]
-      ## Optional features implemented by this backend.
+      ## Optional features implemented by this backend. Any advertised
+      ## capability requires its matching vtable slot or slots to be non-nil.
 
     registerScheme*: proc(h: BackendHandle; scheme: string;
         handler: AssetHandler) {.closure.}
       ## Main thread only. Register a custom asset scheme handler for a handle.
+      ## The backend invokes `handler` later on the backend UI thread only, with
+      ## request payloads copied into Nim-owned values before invocation.
 
     setAppMenu*: proc(h: BackendHandle; menu: seq[MenuItem];
         cb: MenuCallback) {.closure.}
       ## Main thread only. Install or replace the app/window menu.
+      ## The backend invokes `cb` later on the backend UI thread only, with the
+      ## dispatched item id copied into a Nim-owned string before invocation.
 
     trayCreate*: proc(h: BackendHandle; options: TrayOptions;
         cb: MenuCallback) {.closure.}
       ## Main thread only. Create a native tray item for this backend handle.
+      ## The backend invokes `cb` later on the backend UI thread only, with the
+      ## dispatched item id copied into a Nim-owned string before invocation.
 
     trayUpdate*: proc(h: BackendHandle; id: string;
         options: TrayOptions) {.closure.}
@@ -188,3 +208,6 @@ type
     onWindowEvent*: proc(h: BackendHandle;
         cb: WindowEventCallback) {.closure.}
       ## Main thread only. Subscribe to native window lifecycle events.
+      ## The backend invokes `cb` later on the backend UI thread only. Native
+      ## events received on other threads must hop through an unmanaged handoff
+      ## before callback invocation.
