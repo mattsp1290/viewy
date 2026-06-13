@@ -36,7 +36,7 @@ type
     documentToken: string
     sessionToken: string
     port: Port
-    assetHandler: AssetHandler
+    assetHandler: ServedAssetHandler
     stopped: bool
 
 proc servedModeError(message: string): ref ServedModeError =
@@ -142,10 +142,19 @@ proc requestHeaders(headers: HttpHeaders): seq[Header] =
 proc toHttpCode(status: int): HttpCode =
   case status
   of 200: Http200
+  of 201: Http201
+  of 202: Http202
+  of 204: Http204
+  of 206: Http206
+  of 301: Http301
+  of 302: Http302
+  of 304: Http304
   of 400: Http400
   of 401: Http401
+  of 403: Http403
   of 404: Http404
   of 405: Http405
+  of 416: Http416
   else: Http500
 
 proc handleRequest(s: ServedServer; req: Request): Future[void] {.async, gcsafe.} =
@@ -187,7 +196,7 @@ proc handleRequest(s: ServedServer; req: Request): Future[void] {.async, gcsafe.
   if setCookie.len > 0:
     extra.add ("Set-Cookie", setCookie)
 
-  let response = s.assetHandler(AssetRequest(
+  var response = s.assetHandler(AssetRequest(
     scheme: "http",
     httpMethod: requestMethod(req.reqMethod),
     path: assetPath,
@@ -195,6 +204,8 @@ proc handleRequest(s: ServedServer; req: Request): Future[void] {.async, gcsafe.
     headers: requestHeaders(req.headers),
     body: "",
   ))
+  if assetPath == s.documentPath and req.reqMethod != HttpHead:
+    response.rewriteServedDocumentResponse(s.prefix)
   await req.respond(response.status.toHttpCode, response.body,
     httpHeaders(response, extra))
 
@@ -234,8 +245,12 @@ proc serverLoop(s: ServedServer) {.thread.} =
 proc stop*(s: ServedServer)
 
 proc startServedServer*(assets: openArray[ServedAsset];
-    documentPath = "/index.html"; assetHandler: AssetHandler = nil): ServedServer =
+    documentPath = "/index.html";
+        assetHandler: ServedAssetHandler = nil): ServedServer =
   ## Start a headless served-mode loopback server.
+  ##
+  ## A custom `assetHandler` runs on the server thread. Its captured state must
+  ## be immutable and independent from backend/UI-thread-owned objects.
   if assets.len == 0:
     raise servedModeError("served mode has no generated assets")
 
@@ -263,7 +278,7 @@ proc startServedServer*(assets: openArray[ServedAsset];
     )
   result.assetHandler =
     if assetHandler.isNil:
-      assetTableHandler(tableItems, result.documentPath, result.prefix)
+      assetTableHandler(tableItems, result.documentPath)
     else:
       assetHandler
 
@@ -279,7 +294,7 @@ proc startServedServer*(assets: openArray[ServedAsset];
   result.stop()
   raise servedModeError("served mode server did not report a port")
 
-proc startGeneratedServedServer*(assetHandler: AssetHandler = nil): ServedServer =
+proc startGeneratedServedServer*(assetHandler: ServedAssetHandler = nil): ServedServer =
   ## Start a server from generated served-mode assets.
   startServedServer(generatedServedAssets(), generatedServedDocumentPath(),
     assetHandler)

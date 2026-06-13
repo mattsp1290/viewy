@@ -31,6 +31,15 @@ import zippy
 export AssetHandler, AssetRequest, AssetResponse, Header
 
 type
+  ServedAssetHandler* = AssetHandler
+    ## Asset handler used by loopback served mode.
+    ##
+    ## Served mode invokes this handler on the dedicated HTTP server thread, not
+    ## the backend UI thread. Captured state must be immutable after
+    ## `startServedServer`/`run` and must not reference backend handles,
+    ## `App`, or other UI-thread-owned mutable state.
+
+type
   AssetMode* = enum
     ## Load a self-contained HTML document directly with the backend.
     assetsEmbedded
@@ -80,7 +89,11 @@ proc embeddedHtml*(): string =
     fallbackEmbeddedHtml
 
 proc normalizeAssetPath*(path: string): string =
-  ## Normalize a generated asset path into an absolute route path.
+  ## Normalize generated asset-table keys into absolute route paths.
+  ##
+  ## This is not a complete security canonicalizer for untrusted native scheme
+  ## requests; scheme backends must add traversal and decoding checks before
+  ## using request paths as a trust boundary.
   result = path.replace("\\", "/")
   if result.len == 0:
     result = "/"
@@ -105,6 +118,24 @@ proc assetResponse*(status: int; statusText, mimeType, body: string;
     body: body,
   )
 
+proc hasAssetHeader*(headers: openArray[Header]; name: string): bool =
+  ## Return true when an asset response/request header is present.
+  for header in headers:
+    if cmpIgnoreCase(header.name, name) == 0:
+      return true
+
+proc rewriteServedDocumentResponse*(response: var AssetResponse;
+    prefix: string) =
+  ## Apply loopback served-mode root-absolute URL rewriting to a document.
+  if response.status != 200 or response.body.len == 0 or
+      not response.headers.hasAssetHeader("Content-Encoding"):
+    return
+  try:
+    response.body = compress(rewriteAbsoluteAssetUrls(uncompress(response.body),
+      prefix))
+  except CatchableError:
+    discard
+
 proc assetTableHandler*(assets: openArray[AssetTableItem];
     documentPath = "/index.html"; rewritePrefix = ""): AssetHandler =
   ## Return an `AssetHandler` backed by a generated asset table.
@@ -128,16 +159,11 @@ proc assetTableHandler*(assets: openArray[AssetTableItem];
 
     let asset = table[assetPath]
     var responseBytes = asset.gzipBytes
-    if assetPath == normalizedDocumentPath and rewritePrefix.len > 0 and
-        request.httpMethod != "HEAD":
-      try:
-        responseBytes = compress(rewriteAbsoluteAssetUrls(uncompress(
-            asset.gzipBytes), rewritePrefix))
-      except CatchableError:
-        discard
-
     let content = if request.httpMethod == "HEAD": "" else: responseBytes
-    assetResponse(200, "OK", asset.contentType, content, [
+    result = assetResponse(200, "OK", asset.contentType, content, [
       Header((name: "Content-Encoding", value: "gzip")),
       Header((name: "Cache-Control", value: "no-store")),
     ])
+    if assetPath == normalizedDocumentPath and rewritePrefix.len > 0 and
+        request.httpMethod != "HEAD":
+      result.rewriteServedDocumentResponse(rewritePrefix)
