@@ -10,6 +10,7 @@ type
     path: string
     contentType: string
     etag: string
+    sourceRel: string
     staticRel: string
     contentHash: uint64
 
@@ -114,10 +115,12 @@ proc generateMultiFileAssets(distDir, outPath: string; includeScheme: bool) =
     let gzipPath = gzipDir / generatedGzipName(index, rel)
     let content = readFile(file)
     writeFile(gzipPath, gzipDeterministic(content))
+    let sourceRel = relativePath(file, parentDir(outPath)).nimImportPath
     let staticRel = relativePath(gzipPath, parentDir(outPath)).nimImportPath
     entries.add AssetEntry(
       path: servedPath,
       contentType: contentType(file),
+      sourceRel: sourceRel,
       staticRel: staticRel,
       contentHash: fnv1a(content),
     )
@@ -142,6 +145,7 @@ proc generateMultiFileAssets(distDir, outPath: string; includeScheme: bool) =
       schemeEntries.add "  (path: " & nimStringLiteral(entry.path) &
         ", mimeType: " & nimStringLiteral(entry.contentType) &
         ", etag: " & nimStringLiteral(entry.etag) &
+        ", bytes: staticRead(" & nimStringLiteral(entry.sourceRel) & ")" &
         ", gzipBytes: staticRead(" & nimStringLiteral(entry.staticRel) & ")),"
     output.add "const viewySchemeDocumentPath* = " &
       nimStringLiteral("/index.html") & "\n" &

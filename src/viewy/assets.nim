@@ -23,7 +23,7 @@
 when defined(viewyGeneratedAssets) or defined(viewyGeneratedSchemeAssets):
   import viewy_assets
 
-import std/[strutils, tables]
+import std/[sequtils, strutils, tables]
 
 import viewy/backend/api
 import zippy
@@ -58,6 +58,8 @@ type
       ## Content type returned for this asset.
     etag*: string
       ## Optional cache validator returned as the ETag header.
+    bytes*: string
+      ## Uncompressed response body bytes, used for identity range responses.
     gzipBytes*: string
       ## Gzip-compressed response body bytes.
 
@@ -69,6 +71,8 @@ type
       ## MIME type returned for this asset.
     etag*: string
       ## Stable build hash for cache validators.
+    bytes*: string
+      ## Uncompressed response body bytes.
     gzipBytes*: string
       ## Gzip-compressed response body bytes.
 
@@ -126,6 +130,7 @@ proc generatedSchemeAssets*(): seq[SchemeAssetTableItem] =
         path: normalizeAssetPath(item.path),
         mimeType: item.mimeType,
         etag: item.etag,
+        bytes: item.bytes,
         gzipBytes: item.gzipBytes,
       )
   else:
@@ -145,6 +150,7 @@ proc generatedSchemeAssetTable*(): seq[AssetTableItem] =
       path: item.path,
       contentType: item.mimeType,
       etag: item.etag,
+      bytes: item.bytes,
       gzipBytes: item.gzipBytes,
     )
 
@@ -344,20 +350,25 @@ proc assetTableHandler*(assets: openArray[AssetTableItem];
 
     let range = request.headers.assetHeader("Range")
     if range.len > 0 and request.httpMethod in ["GET", "HEAD"]:
-      let parsed = range.rangeResponse(responseBytes.len)
-      if parsed.ok and parsed.satisfiable:
-        responseBytes = responseBytes[parsed.first .. parsed.last]
-        status = 206
-        statusText = "Partial Content"
-        headers.add Header((name: "Content-Range", value: "bytes " &
-          $parsed.first & "-" & $parsed.last & "/" & $asset.gzipBytes.len))
-      elif parsed.ok:
-        return assetResponse(416, "Range Not Satisfiable",
-          "text/plain; charset=utf-8", "", [
-            Header((name: "Cache-Control", value: "no-store")),
-            Header((name: "Content-Range", value: "bytes */" &
-            $asset.gzipBytes.len)),
-          ])
+      if asset.bytes.len == 0:
+        headers = headers.filterIt(cmpIgnoreCase(it.name, "Accept-Ranges") != 0)
+      else:
+        responseBytes = asset.bytes
+        headers = headers.filterIt(cmpIgnoreCase(it.name, "Content-Encoding") != 0)
+        let parsed = range.rangeResponse(responseBytes.len)
+        if parsed.ok and parsed.satisfiable:
+          responseBytes = responseBytes[parsed.first .. parsed.last]
+          status = 206
+          statusText = "Partial Content"
+          headers.add Header((name: "Content-Range", value: "bytes " &
+            $parsed.first & "-" & $parsed.last & "/" & $asset.bytes.len))
+        elif parsed.ok:
+          return assetResponse(416, "Range Not Satisfiable",
+            "text/plain; charset=utf-8", "", [
+              Header((name: "Cache-Control", value: "no-store")),
+              Header((name: "Content-Range", value: "bytes */" &
+              $asset.bytes.len)),
+            ])
 
     let content = if request.httpMethod == "HEAD": "" else: responseBytes
     result = assetResponse(status, statusText, asset.contentType, content, headers)

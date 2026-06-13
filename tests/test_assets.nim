@@ -38,9 +38,11 @@ for badPath in ["../secret", "/../secret", "/assets/%2e%2e/secret",
 
 let handler = assetTableHandler([
   AssetTableItem(path: "index.html", contentType: "text/html; charset=utf-8",
+    bytes: """<!doctype html><script src="/assets/app.js"></script>""",
     gzipBytes: compress("""<!doctype html><script src="/assets/app.js"></script>""")),
   AssetTableItem(path: "/assets/app.js",
     contentType: "text/javascript; charset=utf-8",
+    bytes: "console.log(1)",
     gzipBytes: compress("console.log(1)")),
 ], "/index.html", "__viewy_test")
 
@@ -68,15 +70,16 @@ let range = handler(AssetRequest(scheme: "viewy", httpMethod: "GET",
   headers: @[Header((name: "Range", value: "bytes=0-7"))], body: ""))
 doAssert range.status == 206
 doAssert range.statusText == "Partial Content"
-doAssert range.header("Content-Range") == "bytes 0-7/" & $fullAsset.body.len
-doAssert range.body == fullAsset.body[0 .. 7]
+doAssert range.header("Content-Encoding") == ""
+doAssert range.header("Content-Range") == "bytes 0-7/" & $"console.log(1)".len
+doAssert range.body == "console."
 
 let unsatisfiable = handler(AssetRequest(scheme: "viewy", httpMethod: "GET",
   path: "/assets/app.js", query: "",
   headers: @[Header((name: "Range", value: "bytes=999999-"))], body: ""))
 doAssert unsatisfiable.status == 416
 doAssert unsatisfiable.header("Content-Range") == "bytes */" &
-    $fullAsset.body.len
+    $"console.log(1)".len
 
 let head = handler(AssetRequest(scheme: "viewy", httpMethod: "HEAD",
   path: "/assets/app.js", query: "", headers: @[], body: ""))

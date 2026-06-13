@@ -229,6 +229,11 @@ proc isSchemeRegistered(scheme: string): bool =
     if registered == scheme:
       return true
 
+proc isLiveSchemeRegistered(scheme: string): bool =
+  for state in liveStates:
+    if state.findScheme(scheme) != nil:
+      return true
+
 proc closeFromUiThread(state: LinuxState) =
   let shared = state.shared
   var
@@ -439,12 +444,25 @@ proc requestBody(request: ptr WebKitURISchemeRequest): string =
   while true:
     let count = gInputStreamRead(stream, addr buffer[0], buffer.len.GSize, nil,
         addr error)
-    if count <= 0:
+    if count < 0:
+      if error != nil:
+        gErrorFree(error)
+      discard gInputStreamClose(stream, nil, nil)
+      raise newException(LinuxBackendError,
+          "webkit_uri_scheme_request_get_http_body read failed")
+    if count == 0:
       break
     let oldLen = result.len
     result.setLen(oldLen + count.int)
     copyMem(addr result[oldLen], addr buffer[0], count.int)
+  if error != nil:
+    gErrorFree(error)
+    error = nil
   discard gInputStreamClose(stream, nil, addr error)
+  if error != nil:
+    gErrorFree(error)
+    raise newException(LinuxBackendError,
+        "webkit_uri_scheme_request_get_http_body close failed")
 
 proc schemeTextResponse(status: int; statusText, body: string): AssetResponse =
   AssetResponse(
@@ -490,8 +508,6 @@ proc finishSchemeResponse(request: ptr WebKitURISchemeRequest;
     webkitUriSchemeResponseSetHttpHeaders(webResponse, headers)
 
   webkitUriSchemeRequestFinishWithResponse(request, webResponse)
-  if headers != nil:
-    soupMessageHeadersFree(headers)
   if stream != nil:
     gObjectUnref(stream)
   if webResponse != nil:
@@ -806,7 +822,7 @@ proc registerScheme(h: BackendHandle; scheme: string; handler: AssetHandler) =
   if handler.isNil:
     raise newException(LinuxBackendError,
         "native Linux scheme registration failed: nil handler")
-  if state.findScheme(scheme) != nil:
+  if isLiveSchemeRegistered(scheme):
     raise newException(LinuxBackendError,
         "native Linux scheme registration failed: duplicate scheme " & scheme)
 

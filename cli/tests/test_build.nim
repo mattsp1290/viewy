@@ -214,6 +214,7 @@ suite "viewy build":
       check generated.contains("const viewySchemeAssets* = [")
       check generated.contains("mimeType: \"text/javascript; charset=utf-8\"")
       check generated.contains("etag: \"\\\"viewy-")
+      check generated.contains("bytes: staticRead(")
       check generated.contains("const viewyServedAssets* = [")
       check dirExists(dir / "src" / "viewy_assets_served")
     finally:
@@ -235,6 +236,7 @@ suite "viewy build":
       check generated.contains("path: \"/assets/app.css\"")
       check generated.contains("mimeType: \"text/css; charset=utf-8\"")
       check generated.contains("etag: \"\\\"viewy-")
+      check generated.contains("bytes: staticRead(")
       check generated.contains("gzipBytes: staticRead(")
       check generated.contains("const viewyServedAssets* = [")
       check dirExists(dir / "src" / "viewy_assets_served")
@@ -252,8 +254,8 @@ suite "viewy build":
       check firstEtagStart >= 0
       check secondEtagStart >= 0
       if firstEtagStart >= 0 and secondEtagStart >= 0:
-        let firstEtagEnd = generated.find(", gzipBytes", firstEtagStart)
-        let secondEtagEnd = generated.find(", gzipBytes", secondEtagStart)
+        let firstEtagEnd = generated.find(", bytes", firstEtagStart)
+        let secondEtagEnd = generated.find(", bytes", secondEtagStart)
         check generated[firstEtagStart ..< firstEtagEnd] ==
           generated[secondEtagStart ..< secondEtagEnd]
     finally:

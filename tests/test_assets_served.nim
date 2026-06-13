@@ -69,6 +69,7 @@ doAssert servedAssets[0].gzipBytes == "gz-html"
 const viewySchemeDocumentPath* = "/index.html"
 const viewySchemeAssets* = [
   (path: "/index.html", mimeType: "text/html; charset=utf-8", etag: "\"viewy-abc\"",
+    bytes: "<!doctype html>",
     gzipBytes: staticRead("served/index.html.gz")),
 ]
 """)
@@ -85,6 +86,7 @@ doAssert schemeAssets.len == 1
 doAssert schemeAssets[0].path == "/index.html"
 doAssert schemeAssets[0].mimeType == "text/html; charset=utf-8"
 doAssert schemeAssets[0].etag == "\"viewy-abc\""
+doAssert schemeAssets[0].bytes == "<!doctype html>"
 doAssert schemeAssets[0].gzipBytes == "gz-html"
 let servedAssets = generatedServedAssets()
 doAssert generatedServedDocumentPath() == "/index.html"
@@ -113,8 +115,10 @@ doAssert servedAssets[0].contentType == "text/html; charset=utf-8"
 const viewySchemeDocumentPath* = "/index.html"
 const viewySchemeAssets* = [
   (path: "/index.html", mimeType: "text/html; charset=utf-8", etag: "\"viewy-abc\"",
+    bytes: "<!doctype html><script src=\"/assets/app.js\"></script>",
     gzipBytes: staticRead("served/index.html.gz")),
   (path: "/assets/app.js", mimeType: "text/javascript; charset=utf-8", etag: "\"viewy-abc\"",
+    bytes: "console.log(1)",
     gzipBytes: staticRead("served/app.js.gz")),
 ]
 """)

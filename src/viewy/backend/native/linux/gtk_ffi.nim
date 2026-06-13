@@ -179,6 +179,9 @@ proc gObjectUnref*(obj: pointer)
 proc gFree*(mem: pointer)
   {.importc: "g_free", header: "glib.h", cdecl.}
 
+proc gErrorFree*(error: ptr GError)
+  {.importc: "g_error_free", header: "glib.h", cdecl.}
+
 proc gSignalConnectData*(instance: pointer; detailedSignal: cstring;
     callback: pointer; data: pointer; destroyData: GDestroyNotify;
     connectFlags: GConnectFlags): culong
@@ -332,7 +335,7 @@ proc gtkWindowSetDefaultSize*(window: ptr GtkWindow; width, height: cint)
   {.importc: "gtk_window_set_default_size", header: "gtk/gtk.h", cdecl.}
 
 proc gtkWindowSetGeometryHints*(window: ptr GtkWindow;
-    geometryWidget: ptr GtkWidget;geometry: ptr GdkGeometry; geomMask: cint)
+    geometryWidget: ptr GtkWidget; geometry: ptr GdkGeometry; geomMask: cint)
   {.importc: "gtk_window_set_geometry_hints", header: "gtk/gtk.h", cdecl.}
 
 proc gtkWindowSetPosition*(window: ptr GtkWindow; position: GtkWindowPosition)
