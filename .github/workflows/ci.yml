@@ -357,6 +357,12 @@ jobs:
         env:
           VIEWY_LIB_SRC: ${{ github.workspace }}
 
+      - name: Build React and Svelte templates
+        if: runner.os == 'Linux'
+        run: python cli/tests/test_templates.py
+        env:
+          VIEWY_LIB_SRC: ${{ github.workspace }}
+
       - name: nimpretty
         if: runner.os == 'Linux'
         run: |
