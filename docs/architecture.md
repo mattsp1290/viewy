@@ -78,10 +78,11 @@ tests or future native backends pass their own implementations into `newApp`.
 
 The backend surface is deliberately close to `webview/webview`: create, destroy,
 run, terminate, dispatch, title/size, navigate, set HTML, eval, init, bind,
-unbind, and resolve. viewy adds two typed dispatch helpers:
+unbind, and resolve. viewy adds typed dispatch helpers:
 
 - `dispatchEval` for worker-safe event delivery.
 - `dispatchResolve` for worker-safe deferred RPC completion.
+- `dispatchTerminate` for worker-safe shutdown paths and windowed smoke tests.
 
 Generic `dispatch(h, fn)` exists for UI-thread-created work, but the webview
 backend rejects worker-created closure dispatch. Cross-thread app features use
