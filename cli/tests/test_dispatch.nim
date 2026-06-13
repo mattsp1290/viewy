@@ -24,6 +24,11 @@ suite "viewy dispatch":
     check react.name == "demo"
     check react.templateName == "react"
 
+    let svelte = parseCommand(["init", "demo", "--template", "svelte"])
+    check svelte.kind == ckInit
+    check svelte.name == "demo"
+    check svelte.templateName == "svelte"
+
   test "rejects unknown template":
     expect DispatchError:
       discard parseCommand(["init", "demo", "--template", "solid"])

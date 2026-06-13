@@ -43,7 +43,7 @@ proc usage*(): string =
 viewy - desktop app tooling for Nim
 
 Usage:
-  viewy init <name> [--template vanilla|react]
+  viewy init <name> [--template vanilla|react|svelte]
   viewy dev [--config viewy.json]
   viewy build [--release] [--config viewy.json]
   viewy doctor
@@ -105,7 +105,7 @@ proc parseCommand*(args: openArray[string]): Command =
     if release:
       raise dispatchError("viewy init does not accept --release")
     if positionals.len != 2:
-      raise dispatchError("usage: viewy init <name> [--template vanilla|react]")
+      raise dispatchError("usage: viewy init <name> [--template vanilla|react|svelte]")
     if templateName notin SupportedTemplates:
       raise dispatchError("unknown template: " & templateName &
         " (supported: " & SupportedTemplates.join(", ") & ")")
