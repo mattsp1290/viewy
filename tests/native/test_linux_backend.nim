@@ -54,6 +54,19 @@ else:
     {.cast(gcsafe).}:
       newBackend().resolve(h, id, true, "\"done\"")
 
+  proc dispatchResolveDone(h: BackendHandle; id: string) {.gcsafe.} =
+    {.cast(gcsafe).}:
+      newBackend().dispatchResolve(h, id, true, "\"dispatch\"")
+
+  proc rejectValueError(h: BackendHandle; id: string) {.gcsafe.} =
+    {.cast(gcsafe).}:
+      newBackend().resolve(h, id, false,
+        """{"error":{"message":"ValueError","type":"ValueError"}}""")
+
+  proc resolveVoid(h: BackendHandle; id: string) {.gcsafe.} =
+    {.cast(gcsafe).}:
+      newBackend().resolve(h, id, true, "")
+
   proc dispatchTerminate(h: BackendHandle) {.gcsafe.} =
     {.cast(gcsafe).}:
       newBackend().dispatchTerminate(h)
@@ -83,6 +96,8 @@ else:
       seen = false
       seenId = ""
       seenArgs = ""
+      lateSeen = false
+      unbindChecked = false
     let h = nativeBackend.create(false)
     nativeBackend.init(h, viewyRuntimeJs)
     nativeBackend.bindFn(h, "ready", proc(id, jsonArgs: string) {.gcsafe.} =
@@ -91,6 +106,20 @@ else:
         seenId = id
         seenArgs = jsonArgs
       resolveDone(h, id)
+    )
+    nativeBackend.bindFn(h, "fail", proc(id, jsonArgs: string) {.gcsafe.} =
+      discard jsonArgs
+      rejectValueError(h, id)
+    )
+    nativeBackend.bindFn(h, "voidResult", proc(id,
+        jsonArgs: string) {.gcsafe.} =
+      discard jsonArgs
+      resolveVoid(h, id)
+    )
+    nativeBackend.bindFn(h, "deferred", proc(id,
+        jsonArgs: string) {.gcsafe.} =
+      discard jsonArgs
+      dispatchResolveDone(h, id)
     )
     nativeBackend.bindFn(h, "done", proc(id, jsonArgs: string) {.gcsafe.} =
       discard id
@@ -113,6 +142,69 @@ window.ready("ok").then(function(value) {
     doAssert seen
     doAssert seenId.len > 0
     doAssert seenArgs == """["ok"]"""
+
+    let h2 = nativeBackend.create(false)
+    nativeBackend.init(h2, viewyRuntimeJs)
+    nativeBackend.bindFn(h2, "done", proc(id, jsonArgs: string) {.gcsafe.} =
+      discard id
+      discard jsonArgs
+      dispatchTerminate(h2)
+    )
+    nativeBackend.setHtml(h2, """
+<!doctype html>
+<script>
+window.addEventListener("load", function() {
+  setTimeout(function() {
+    window.late("after-load").then(function(value) {
+      if (value !== "late") throw new Error("unexpected late value");
+      return window.__viewy.call("fail");
+    }).then(function() {
+      throw new Error("expected rejection");
+    }).catch(function(error) {
+      if (!error || !error.error || error.error.type !== "ValueError") throw new Error("bad rejection");
+      return window.__viewy.call("voidResult");
+    }).then(function(value) {
+      if (value !== undefined) throw new Error("expected undefined");
+      return window.__viewy.call("deferred");
+    }).then(function(value) {
+      if (value !== "dispatch") throw new Error("bad dispatch resolve");
+      return window.removeLate();
+    }).then(function(value) {
+      if (value !== "removed") throw new Error("bad unbind result");
+      setTimeout(function() {
+        try {
+          if (typeof window.late !== "undefined") throw new Error("late still bound");
+          window.done();
+        } catch (error) {
+          window.done(String(error && error.message || error));
+        }
+      }, 20);
+    }).catch(function(error) {
+      window.done(String(error && error.message || error));
+    });
+  }, 20);
+});
+</script>
+""")
+    nativeBackend.bindFn(h2, "late", proc(id, jsonArgs: string) {.gcsafe.} =
+      {.cast(gcsafe).}:
+        lateSeen = true
+      doAssert jsonArgs == """["after-load"]"""
+      {.cast(gcsafe).}:
+        newBackend().resolve(h2, id, true, "\"late\"")
+    )
+    nativeBackend.bindFn(h2, "removeLate", proc(id,
+        jsonArgs: string) {.gcsafe.} =
+      discard jsonArgs
+      {.cast(gcsafe).}:
+        newBackend().unbind(h2, "late")
+        unbindChecked = true
+        newBackend().resolve(h2, id, true, "\"removed\"")
+    )
+    nativeBackend.run(h2)
+    nativeBackend.destroy(h2)
+    doAssert lateSeen
+    doAssert unbindChecked
 
   if getEnv("VIEWY_NATIVE_LINUX_SMOKE") == "1":
     smokeMainThreadTerminate()

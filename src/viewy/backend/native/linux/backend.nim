@@ -155,6 +155,16 @@ proc bindScript(name: string): string =
   jsCall("""
 var w=window,v=w.__viewy||(w.__viewy={}),p=v._p||(v._p={}),s=Array.prototype.slice;
 v._seq=v._seq||0;
+v._id=v._id||function(){
+  var c=w.crypto||w.msCrypto,b,i,a=[];
+  if(c&&c.getRandomValues){
+    b=new Uint8Array(16);
+    c.getRandomValues(b);
+    for(i=0;i<b.length;i++)a.push(("0"+b[i].toString(16)).slice(-2));
+    return a.join("");
+  }
+  return String(Date.now())+"-"+String(Math.random()).slice(2)+"-"+String(++v._seq);
+};
 v._resolve=v._resolve||function(id,ok,json){
   var q=p[id],value;
   if(!q)return;
@@ -162,8 +172,9 @@ v._resolve=v._resolve||function(id,ok,json){
   try{value=json===""?undefined:JSON.parse(json);}catch(e){ok=false;value=e;}
   (ok?q.resolve:q.reject)(value);
 };
+if(Object.hasOwn?Object.hasOwn(w,$1):Object.prototype.hasOwnProperty.call(w,$1))throw new Error("Property "+$1+" already exists");
 w[$1]=function(){
-  var args=s.call(arguments),id=String(++v._seq);
+  var args=s.call(arguments),id=v._id();
   return new Promise(function(resolve,reject){
     p[id]={resolve:resolve,reject:reject};
     w.webkit.messageHandlers.$2.postMessage(JSON.stringify({name:$1,id:id,args:JSON.stringify(args)}));
@@ -322,6 +333,11 @@ proc dispatchPayload(shared: ptr SharedState; payload: ptr HandoffPayload) =
   if gIdleAdd(handoffCb, payload) == 0:
     freePayload(payload)
     raise newException(LinuxBackendError, "g_idle_add failed")
+
+proc evalCurrent(state: LinuxState; js: string) =
+  state.requireOpen("webkit_web_view_evaluate_javascript")
+  webkitWebViewEvaluateJavascript(state.shared.webview, js.cstring, int64(
+      js.len), nil, nil, nil, nil, nil)
 
 proc messageToString(jsResult: ptr WebKitJavascriptResult): string =
   if jsResult == nil:
@@ -602,21 +618,22 @@ proc bindFn(h: BackendHandle; name: string; cb: BindCallback) =
 
   let binding = Binding(name: name, cb: cb)
   state.bindings.add binding
-  state.addUserScript(bindScript(name))
+  let script = bindScript(name)
+  state.addUserScript(script)
+  state.evalCurrent(script)
 
 proc unbind(h: BackendHandle; name: string) =
   let state = h.toState
   state.assertUiThread
   state.removeBinding(name)
-  state.addUserScript(jsCall("delete window[" & name.toJson() & "];"))
+  let script = jsCall("delete window[" & name.toJson() & "];")
+  state.addUserScript(script)
+  state.evalCurrent(script)
 
 proc resolve(h: BackendHandle; id: string; ok: bool; jsonResult: string) =
   let state = h.toState
   state.assertUiThread
-  state.requireOpen("webkit_web_view_evaluate_javascript")
-  let script = resolveScript(id, ok, jsonResult)
-  webkitWebViewEvaluateJavascript(state.shared.webview, script.cstring, int64(
-      script.len), nil, nil, nil, nil, nil)
+  state.evalCurrent(resolveScript(id, ok, jsonResult))
 
 proc newBackend*(): Backend =
   Backend(
