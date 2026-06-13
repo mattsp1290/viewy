@@ -15,6 +15,7 @@ task test, "Run the CLI test suite":
   exec "nim c --path:src -r tests/test_build.nim"
   exec "nim c --path:src -r tests/test_config.nim"
   exec "nim c --path:src -r tests/test_dev.nim"
+  exec "nim c --path:src -r tests/test_doctor.nim"
   exec "nim c --path:src -r tests/test_dispatch.nim"
   exec "nim c --path:src -r tests/test_e2e.nim"
   exec "nim c --path:src -r tests/test_init.nim"

@@ -4,6 +4,7 @@ import viewy_cli/assets_gen
 import viewy_cli/build
 import viewy_cli/config
 import viewy_cli/dev
+import viewy_cli/doctor
 import viewy_cli/init
 
 const CliVersion* = "0.1.0"
@@ -107,7 +108,8 @@ proc parseCommand*(args: openArray[string]): Command =
       raise dispatchError("usage: viewy init <name> [--template vanilla]")
     if templateName != "vanilla":
       raise dispatchError("unknown template: " & templateName & " (supported: vanilla)")
-    Command(kind: ckInit, configPath: configPath, configExplicit: configExplicit,
+    Command(kind: ckInit, configPath: configPath,
+      configExplicit: configExplicit,
       name: positionals[1], templateName: templateName)
   of "dev":
     if templateExplicit:
@@ -122,14 +124,16 @@ proc parseCommand*(args: openArray[string]): Command =
       raise dispatchError("viewy build does not accept --template")
     if positionals.len != 1:
       raise dispatchError("usage: viewy build [--release] [--config viewy.json]")
-    Command(kind: ckBuild, configPath: configPath, configExplicit: configExplicit,
+    Command(kind: ckBuild, configPath: configPath,
+      configExplicit: configExplicit,
       release: release)
   of "doctor":
     if configExplicit or templateExplicit or release:
       raise dispatchError("viewy doctor does not accept command options yet")
     if positionals.len != 1:
       raise dispatchError("usage: viewy doctor")
-    Command(kind: ckDoctor, configPath: configPath, configExplicit: configExplicit)
+    Command(kind: ckDoctor, configPath: configPath,
+        configExplicit: configExplicit)
   else:
     raise dispatchError("unknown command: " & positionals[0])
 
@@ -146,7 +150,8 @@ proc runCli*(args: openArray[string]): CliResult =
     result.output = "viewy " & CliVersion
   of ckInit:
     try:
-      result.output = initProject(result.command.name, result.command.templateName)
+      result.output = initProject(result.command.name,
+          result.command.templateName)
     except InitError as e:
       result.exitCode = 2
       result.error = e.msg
@@ -184,4 +189,7 @@ proc runCli*(args: openArray[string]): CliResult =
       result.exitCode = 2
       result.error = e.msg
   of ckDoctor:
-    result.output = "viewy doctor is reserved for Phase 3"
+    let report = runDoctor()
+    result.output = report.output
+    if not report.ok:
+      result.exitCode = 1

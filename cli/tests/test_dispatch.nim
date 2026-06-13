@@ -82,11 +82,14 @@ suite "viewy dispatch":
     expect DispatchError:
       discard parseCommand(["doctor", "--config", "viewy.json"])
 
-  test "reserves doctor command":
+  test "parses doctor command":
+    let result = parseCommand(["doctor"])
+    check result.kind == ckDoctor
+
+  test "runs doctor command":
     let result = runCli(["doctor"])
-    check result.exitCode == 0
     check result.command.kind == ckDoctor
-    check result.output.contains("Phase 3")
+    check result.output.contains("viewy doctor")
 
   test "reports invalid command with usage":
     let result = runCli(["unknown"])
