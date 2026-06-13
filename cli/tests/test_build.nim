@@ -99,6 +99,7 @@ suite "viewy build":
       check calls.len == 2
       check calls[0] == ("npm run build", dir / "frontend")
       check calls[1].command.startsWith("nim c ")
+      check calls[1].command.contains("-d:viewyBackend=lite")
       check calls[1].command.contains("-d:viewyGeneratedAssets")
       check calls[1].command.contains("-d:release")
       check calls[1].command.contains("-d:strip")
@@ -145,6 +146,7 @@ suite "viewy build":
       let output = buildApp(cfg, projectDir = dir, exec = fakeExec)
 
       check output.contains("Built binary:")
+      check calls[1].command.contains("-d:viewyBackend=lite")
       check calls[1].command.contains("-d:viewyGeneratedServedAssets")
       check not calls[1].command.contains("-d:viewyGeneratedAssets")
       check fileExists(dir / "src" / "viewy_assets.nim")
@@ -188,6 +190,7 @@ suite "viewy build":
       let output = buildApp(cfg, projectDir = dir, exec = fakeExec)
 
       check output.contains("Built binary:")
+      check calls[1].command.contains("-d:viewyBackend=lite")
       check calls[1].command.contains("-d:viewyGeneratedSchemeAssets")
       check not calls[1].command.contains("-d:viewyGeneratedServedAssets")
       check not calls[1].command.contains("-d:viewyGeneratedAssets")

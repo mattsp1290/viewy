@@ -91,7 +91,7 @@ jobs:
         run: python -c "import os; os.makedirs('build', exist_ok=True)"
 
       - name: Build window smoke
-        run: nim c --hints:off --mm:orc --threads:on -o:build/window_smoke tests/spike/window_smoke.nim
+        run: nim c --hints:off --mm:orc --threads:on -d:viewyBackend=lite -o:build/window_smoke tests/spike/window_smoke.nim
 
       - name: Run window smoke (xvfb, 120s watchdog)
         if: runner.os == 'Linux'
@@ -119,7 +119,7 @@ jobs:
           PY
 
       - name: Build windowed runtime RPC test
-        run: nim c --hints:off --mm:orc --threads:on -o:build/test_windowed tests/test_windowed.nim
+        run: nim c --hints:off --mm:orc --threads:on -d:viewyBackend=lite -o:build/test_windowed tests/test_windowed.nim
 
       - name: Run windowed runtime RPC test (xvfb, 120s watchdog)
         if: runner.os == 'Linux'
@@ -147,7 +147,7 @@ jobs:
           PY
 
       - name: Build async RPC windowed test
-        run: nim c --hints:off --mm:orc --threads:on -o:build/test_async_rpc tests/test_async_rpc.nim
+        run: nim c --hints:off --mm:orc --threads:on -d:viewyBackend=lite -o:build/test_async_rpc tests/test_async_rpc.nim
 
       - name: Run async RPC windowed test (xvfb, 120s watchdog)
         if: runner.os == 'Linux'
@@ -175,7 +175,7 @@ jobs:
           PY
 
       - name: Build handoff windowed test
-        run: nim c --hints:off --mm:orc --threads:on -o:build/test_wv_handoff tests/test_wv_handoff.nim
+        run: nim c --hints:off --mm:orc --threads:on -d:viewyBackend=lite -o:build/test_wv_handoff tests/test_wv_handoff.nim
 
       - name: Run handoff windowed test (xvfb, 120s watchdog)
         if: runner.os == 'Linux'
@@ -203,7 +203,7 @@ jobs:
           PY
 
       - name: Build teardown windowed test
-        run: nim c --hints:off --mm:orc --threads:on -o:build/test_wv_teardown tests/test_wv_teardown.nim
+        run: nim c --hints:off --mm:orc --threads:on -d:viewyBackend=lite -o:build/test_wv_teardown tests/test_wv_teardown.nim
 
       - name: Run teardown windowed test (xvfb, 120s watchdog)
         if: runner.os == 'Linux'
@@ -231,7 +231,7 @@ jobs:
           PY
 
       - name: Build emit stress windowed test
-        run: nim c --hints:off --mm:orc --threads:on -o:build/test_emit_stress tests/test_emit_stress.nim
+        run: nim c --hints:off --mm:orc --threads:on -d:viewyBackend=lite -o:build/test_emit_stress tests/test_emit_stress.nim
 
       - name: Run emit stress windowed test (xvfb, 120s watchdog)
         if: runner.os == 'Linux'
@@ -259,7 +259,7 @@ jobs:
           PY
 
       - name: Build release embedded asset windowed test
-        run: nim c --hints:off --mm:orc --threads:on -d:release -d:viewyGeneratedAssets --path:tests/fixtures/assets_single -o:build/test_assets_single tests/test_assets_single.nim
+        run: nim c --hints:off --mm:orc --threads:on -d:viewyBackend=lite -d:release -d:viewyGeneratedAssets --path:tests/fixtures/assets_single -o:build/test_assets_single tests/test_assets_single.nim
 
       - name: Run release embedded asset windowed test (xvfb, 120s watchdog)
         if: runner.os == 'Linux'

@@ -156,7 +156,8 @@ proc buildApp*(cfg: ViewyConfig; release = false; projectDir = ".";
     raise buildError("dev-server asset mode is not valid for production builds")
 
   createDir(buildDir)
-  var nimCmd = "nim c --mm:orc --threads:on --path:" & quote(nimSrcDir)
+  var nimCmd = "nim c --mm:orc --threads:on -d:viewyBackend=lite --path:" &
+      quote(nimSrcDir)
   case runtimeMode
   of runtimeAssets.assetsEmbedded:
     nimCmd.add " -d:viewyGeneratedAssets"

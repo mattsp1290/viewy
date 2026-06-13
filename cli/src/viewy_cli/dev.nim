@@ -94,7 +94,7 @@ proc devCompileCommand*(cfg: ViewyConfig; projectDir = "."): tuple[command,
   let libPath = viewyLibPath()
   if libPath.len == 0:
     raise devError("viewy library source not found; install the viewy package or set VIEWY_LIB_SRC")
-  var command = "nim c --mm:orc --threads:on " &
+  var command = "nim c --mm:orc --threads:on -d:viewyBackend=lite " &
     quote("-d:viewyDev=" & cfg.devUrl) &
     " --path:" & quote(nimSrcDir) & " --path:" & quote(libPath) &
     " -o:" & quote(binaryPath) & " " & quote(nimMain)
