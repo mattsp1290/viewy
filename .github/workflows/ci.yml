@@ -175,7 +175,7 @@ jobs:
           PY
 
       - name: Build handoff windowed test
-        run: nim c --hints:off --mm:orc --threads:on -d:viewyBackend=lite -o:build/test_wv_handoff tests/test_wv_handoff.nim
+        run: nim c --hints:off --mm:orc --threads:on -d:viewyBackend=lite -o:build/test_backend_handoff tests/test_backend_handoff.nim
 
       - name: Run handoff windowed test (xvfb, 120s watchdog)
         if: runner.os == 'Linux'
@@ -184,7 +184,7 @@ jobs:
           import subprocess
 
           subprocess.run(
-              ["xvfb-run", "-a", "build/test_wv_handoff"],
+              ["xvfb-run", "-a", "build/test_backend_handoff"],
               check=True,
               timeout=120,
           )
@@ -198,12 +198,12 @@ jobs:
           import os
           import subprocess
 
-          exe = "build/test_wv_handoff.exe" if os.name == "nt" else "build/test_wv_handoff"
+          exe = "build/test_backend_handoff.exe" if os.name == "nt" else "build/test_backend_handoff"
           subprocess.run([exe], check=True, timeout=120)
           PY
 
       - name: Build teardown windowed test
-        run: nim c --hints:off --mm:orc --threads:on -d:viewyBackend=lite -o:build/test_wv_teardown tests/test_wv_teardown.nim
+        run: nim c --hints:off --mm:orc --threads:on -d:viewyBackend=lite -o:build/test_backend_teardown tests/test_backend_teardown.nim
 
       - name: Run teardown windowed test (xvfb, 120s watchdog)
         if: runner.os == 'Linux'
@@ -212,7 +212,7 @@ jobs:
           import subprocess
 
           subprocess.run(
-              ["xvfb-run", "-a", "build/test_wv_teardown"],
+              ["xvfb-run", "-a", "build/test_backend_teardown"],
               check=True,
               timeout=120,
           )
@@ -226,7 +226,7 @@ jobs:
           import os
           import subprocess
 
-          exe = "build/test_wv_teardown.exe" if os.name == "nt" else "build/test_wv_teardown"
+          exe = "build/test_backend_teardown.exe" if os.name == "nt" else "build/test_backend_teardown"
           subprocess.run([exe], check=True, timeout=120)
           PY
 

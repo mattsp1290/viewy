@@ -3,7 +3,8 @@ import std/[json, os, strformat]
 import jsony
 
 import viewy
-import viewy/backend/wv/backend
+import viewy/backend/api
+import viewy/backend/select
 import viewy/runtime_js
 
 const
@@ -20,6 +21,7 @@ type
     worker: int
 
 var
+  appBackend {.global.}: Backend
   windowHandle {.global.}: BackendHandle
   reportSeen {.global.}: bool
   reportJson {.global.}: string
@@ -30,8 +32,9 @@ var
 
 proc worker(args: WorkerArgs) {.thread.} =
   for i in 0 ..< eventsPerWorker:
-    dispatchEval(windowHandle, emitScript("stress", EventPayload(
-        worker: args.worker, index: i)))
+    {.cast(gcsafe).}:
+      appBackend.dispatchEval(windowHandle, emitScript("stress", EventPayload(
+          worker: args.worker, index: i)))
 
 proc reportCallback(id, jsonArgs: string) {.gcsafe.} =
   {.cast(gcsafe).}:
@@ -39,9 +42,9 @@ proc reportCallback(id, jsonArgs: string) {.gcsafe.} =
     if args.len == 1:
       reportSeen = true
       reportJson = args[0]
-      dispatchResolve(windowHandle, id, true, "true")
+      appBackend.dispatchResolve(windowHandle, id, true, "true")
     else:
-      dispatchResolve(windowHandle, id, false,
+      appBackend.dispatchResolve(windowHandle, id, false,
         """{"error":{"message":"ValueError","type":"ValueError"}}""")
 
 proc doneCallback(id, jsonArgs: string) {.gcsafe.} =
@@ -49,7 +52,7 @@ proc doneCallback(id, jsonArgs: string) {.gcsafe.} =
     discard id
     discard jsonArgs
     doneSeen = true
-    dispatchTerminate(windowHandle)
+    appBackend.dispatchTerminate(windowHandle)
 
 proc readyCallback(id, jsonArgs: string) {.gcsafe.} =
   {.cast(gcsafe).}:
@@ -59,12 +62,12 @@ proc readyCallback(id, jsonArgs: string) {.gcsafe.} =
       for i in 0 ..< workerCount:
         args[i] = WorkerArgs(worker: i)
         createThread(threads[i], worker, args[i])
-    dispatchResolve(windowHandle, id, true, "true")
+    appBackend.dispatchResolve(windowHandle, id, true, "true")
 
 if getEnv("VIEWY_SKIP_WINDOWED") == "1":
   echo "skipped emit stress: VIEWY_SKIP_WINDOWED=1"
 else:
-  let appBackend = newBackend()
+  appBackend = newBackend()
   let h = appBackend.create(false)
   windowHandle = h
   reportSeen = false

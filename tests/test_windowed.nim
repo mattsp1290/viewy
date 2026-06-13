@@ -2,7 +2,8 @@ import std/[json, os]
 
 import jsony
 
-import viewy/backend/wv/backend
+import viewy/backend/api
+import viewy/backend/select
 import viewy/rpc
 import viewy/runtime_js
 
@@ -16,6 +17,7 @@ proc binding(name: string): RpcBinding =
   raise newException(ValueError, "missing binding: " & name)
 
 var
+  backend {.global.}: Backend
   windowHandle {.global.}: BackendHandle
   reportSeen {.global.}: bool
   reportJson {.global.}: string
@@ -23,7 +25,7 @@ var
 proc windowAddCallback(id, jsonArgs: string) {.gcsafe.} =
   {.cast(gcsafe).}:
     let reply = binding("windowAdd").call(id, jsonArgs)
-    dispatchResolve(windowHandle, id, reply.ok, reply.json)
+    backend.dispatchResolve(windowHandle, id, reply.ok, reply.json)
 
 proc reportCallback(id, jsonArgs: string) {.gcsafe.} =
   {.cast(gcsafe).}:
@@ -31,26 +33,26 @@ proc reportCallback(id, jsonArgs: string) {.gcsafe.} =
     if args.len == 1:
       reportSeen = true
       reportJson = args[0]
-      dispatchResolve(windowHandle, id, true, "true")
+      backend.dispatchResolve(windowHandle, id, true, "true")
     else:
-      dispatchResolve(windowHandle, id, false,
+      backend.dispatchResolve(windowHandle, id, false,
         """{"error":{"message":"ValueError","type":"ValueError"}}""")
-    dispatchTerminate(windowHandle)
+    backend.dispatchTerminate(windowHandle)
 
 if getEnv("VIEWY_SKIP_WINDOWED") == "1":
   echo "skipped windowed runtime RPC: VIEWY_SKIP_WINDOWED=1"
 else:
-  let b = newBackend()
-  let h = b.create(false)
+  backend = newBackend()
+  let h = backend.create(false)
   windowHandle = h
   reportSeen = false
   reportJson = ""
 
-  b.setTitle(h, "viewy windowed runtime RPC test")
-  b.init(h, viewyRuntimeJs)
-  b.bindFn(h, "windowAdd", windowAddCallback)
-  b.bindFn(h, "report", reportCallback)
-  b.setHtml(h, """
+  backend.setTitle(h, "viewy windowed runtime RPC test")
+  backend.init(h, viewyRuntimeJs)
+  backend.bindFn(h, "windowAdd", windowAddCallback)
+  backend.bindFn(h, "report", reportCallback)
+  backend.setHtml(h, """
 <!doctype html>
 <meta charset="utf-8">
 <script>
@@ -80,8 +82,8 @@ else:
 </script>
 """)
 
-  b.run(h)
-  b.destroy(h)
+  backend.run(h)
+  backend.destroy(h)
 
   doAssert reportSeen
   let report = parseJson(reportJson)

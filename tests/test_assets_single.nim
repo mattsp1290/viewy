@@ -6,10 +6,12 @@ else:
   import jsony
 
   import viewy/assets
-  import viewy/backend/wv/backend
+  import viewy/backend/api
+  import viewy/backend/select
   import viewy/runtime_js
 
   var
+    backend {.global.}: Backend
     windowHandle {.global.}: BackendHandle
     reportSeen {.global.}: bool
     reportContent {.global.}: string
@@ -20,21 +22,21 @@ else:
       if args.len == 1:
         reportSeen = true
         reportContent = args[0]
-    dispatchResolve(windowHandle, id, true, "true")
-    dispatchTerminate(windowHandle)
+      backend.dispatchResolve(windowHandle, id, true, "true")
+      backend.dispatchTerminate(windowHandle)
 
   if getEnv("VIEWY_SKIP_WINDOWED") == "1":
     echo "skipped release embedded asset window: VIEWY_SKIP_WINDOWED=1"
   else:
-    let b = newBackend()
-    let h = b.create(false)
+    backend = newBackend()
+    let h = backend.create(false)
     windowHandle = h
-    b.setTitle(h, "viewy embedded release asset test")
-    b.init(h, viewyRuntimeJs)
-    b.bindFn(h, "report", reportCallback)
-    b.setHtml(h, embeddedHtml())
-    b.run(h)
-    b.destroy(h)
+    backend.setTitle(h, "viewy embedded release asset test")
+    backend.init(h, viewyRuntimeJs)
+    backend.bindFn(h, "report", reportCallback)
+    backend.setHtml(h, embeddedHtml())
+    backend.run(h)
+    backend.destroy(h)
 
     doAssert reportSeen
     doAssert reportContent == "embedded release fixture"

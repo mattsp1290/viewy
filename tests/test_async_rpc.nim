@@ -1,7 +1,8 @@
 import std/[asyncdispatch, json, os]
 
 import jsony
-import viewy/backend/wv/backend
+import viewy/backend/api
+import viewy/backend/select
 import viewy/rpc
 
 proc delayedValue(value: int): Future[int] {.async.} =
@@ -25,6 +26,7 @@ proc binding(name: string): RpcBinding =
   raise newException(ValueError, "missing binding: " & name)
 
 var
+  backend {.global.}: Backend
   windowHandle {.global.}: BackendHandle
   windowDone {.global.}: bool
   windowReportJson {.global.}: string
@@ -36,7 +38,8 @@ proc pumpPending() {.gcsafe.} =
       poll(1)
 
 proc resolveByDispatch(id: string; ok: bool; json: string) {.gcsafe.} =
-  dispatchResolve(windowHandle, id, ok, json)
+  {.cast(gcsafe).}:
+    backend.dispatchResolve(windowHandle, id, ok, json)
 
 proc invokeRpc(name, id, jsonArgs: string) {.gcsafe.} =
   {.cast(gcsafe).}:
@@ -45,7 +48,7 @@ proc invokeRpc(name, id, jsonArgs: string) {.gcsafe.} =
     if reply.pending:
       pumpPending()
     else:
-      dispatchResolve(windowHandle, id, reply.ok, reply.json)
+      backend.dispatchResolve(windowHandle, id, reply.ok, reply.json)
 
 proc asyncAddCallback(id, jsonArgs: string) {.gcsafe.} =
   invokeRpc("asyncAdd", id, jsonArgs)
@@ -59,11 +62,11 @@ proc reportCallback(id, jsonArgs: string) {.gcsafe.} =
     if args.len == 1:
       windowReportJson = args[0]
       windowDone = true
-      dispatchResolve(windowHandle, id, true, "true")
+      backend.dispatchResolve(windowHandle, id, true, "true")
     else:
-      dispatchResolve(windowHandle, id, false,
+      backend.dispatchResolve(windowHandle, id, false,
         """{"error":{"message":"ValueError","type":"ValueError"}}""")
-    dispatchTerminate(windowHandle)
+    backend.dispatchTerminate(windowHandle)
 
 var
   unitResolved = false
@@ -104,17 +107,17 @@ doAssert failed["error"]["message"].getStr != "async secret"
 if getEnv("VIEWY_SKIP_WINDOWED") == "1":
   echo "skipped windowed async RPC: VIEWY_SKIP_WINDOWED=1"
 else:
-  let b = newBackend()
-  let h = b.create(false)
+  backend = newBackend()
+  let h = backend.create(false)
   windowHandle = h
   windowDone = false
   windowReportJson = ""
 
-  b.bindFn(h, "asyncAdd", asyncAddCallback)
-  b.bindFn(h, "asyncFail", asyncFailCallback)
-  b.bindFn(h, "report", reportCallback)
+  backend.bindFn(h, "asyncAdd", asyncAddCallback)
+  backend.bindFn(h, "asyncFail", asyncFailCallback)
+  backend.bindFn(h, "report", reportCallback)
 
-  b.setHtml(h, """
+  backend.setHtml(h, """
 <!doctype html>
 <meta charset="utf-8">
 <script>
@@ -140,8 +143,8 @@ else:
 </script>
 """)
 
-  b.run(h)
-  b.destroy(h)
+  backend.run(h)
+  backend.destroy(h)
 
   doAssert windowDone
   let report = parseJson(windowReportJson)
