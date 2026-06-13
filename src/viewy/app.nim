@@ -4,7 +4,7 @@ import std/asyncdispatch
 
 import viewy/assets
 import viewy/backend/api
-import viewy/backend/lite/backend
+import viewy/backend/select
 import viewy/rpc
 import viewy/runtime_js
 from viewy/assets_served import ServedServer, documentUrl,
