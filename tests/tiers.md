@@ -20,6 +20,7 @@ Runs headlessly everywhere and does not create a backend window.
 - `test_rpc_dump.nim`
 - `test_runtime_js.nim`
 - `test_served_auth.nim`
+- `test_scheme_routing.nim`
 - `tviewy.nim`
 
 ## Tier 2: Real Backend Smoke

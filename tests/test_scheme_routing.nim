@@ -1,4 +1,4 @@
-import std/strutils
+import std/[os, osproc, strutils, tempfiles]
 
 import viewy/assets
 import zippy
@@ -8,7 +8,6 @@ proc header(response: AssetResponse; name: string): string =
     if cmpIgnoreCase(header.name, name) == 0:
       return header.value
 
-var seenQueries: seq[string]
 let schemeHandler = assetTableHandler([
   AssetTableItem(
     path: "/index.html",
@@ -34,7 +33,6 @@ let schemeHandler = assetTableHandler([
 ])
 
 proc request(path: string; query = ""; headers: seq[Header] = @[]): AssetResponse =
-  seenQueries.add query
   schemeHandler(AssetRequest(
     scheme: "viewy",
     httpMethod: "GET",
@@ -85,7 +83,56 @@ for badPath in ["../secret", "/../secret", "/assets/%2e%2e/secret",
   doAssert response.status == 400
   doAssert response.body == "bad request"
 
-doAssert seenQueries == @["from=root", "v=123", "", "tab=account", "", "", "",
-    "", "", "", "", "", "", "", "", ""]
+let dir = createTempDir("viewy_scheme_mime_", "")
+try:
+  createDir(dir / "src")
+  createDir(dir / "dist" / "assets")
+  writeFile(dir / "dist" / "index.html", "<!doctype html>")
+  writeFile(dir / "dist" / "assets" / "app.mjs", "export default 1")
+  writeFile(dir / "dist" / "assets" / "style.css", "body{}")
+  writeFile(dir / "dist" / "assets" / "data.json", "{}")
+  writeFile(dir / "dist" / "assets" / "logo.svg", "<svg></svg>")
+  writeFile(dir / "dist" / "assets" / "module.wasm", "wasm")
+  let generated = dir / "src" / "viewy_assets.nim"
+  let generator = dir / "generate_scheme_assets.nim"
+  writeFile(generator, """
+import std/os
+
+import viewy_cli/assets_gen
+
+generateSchemeAssets(paramStr(1), paramStr(2))
+""")
+  let genCmd = "nim c -r --hints:off --mm:orc --threads:on --path:cli/src --path:src " &
+    quoteShell(generator) & " " & quoteShell(dir / "dist") & " " &
+    quoteShell(generated)
+  let (genOutput, genExitCode) = execCmdEx(genCmd)
+  doAssert genExitCode == 0, genOutput
+
+  let sample = dir / "check_scheme_mime.nim"
+  writeFile(sample, """
+import viewy/assets
+
+let table = generatedSchemeAssetTable()
+
+proc contentType(path: string): string =
+  for asset in table:
+    if asset.path == path:
+      return asset.contentType
+
+doAssert contentType("/index.html") == "text/html; charset=utf-8"
+doAssert contentType("/assets/app.mjs") == "text/javascript; charset=utf-8"
+doAssert contentType("/assets/style.css") == "text/css; charset=utf-8"
+doAssert contentType("/assets/data.json") == "application/json; charset=utf-8"
+doAssert contentType("/assets/logo.svg") == "image/svg+xml"
+doAssert contentType("/assets/module.wasm") == "application/wasm"
+""")
+
+  let cmd = "nim c -r --hints:off --mm:orc --threads:on --path:src --path:cli/src --path:" &
+    quoteShell(dir / "src") & " -d:viewyBackend=lite -d:viewyGeneratedSchemeAssets " &
+    quoteShell(sample)
+  let (output, exitCode) = execCmdEx(cmd)
+  doAssert exitCode == 0, output
+finally:
+  removeDir(dir)
 
 echo "ok: scheme asset routing"
