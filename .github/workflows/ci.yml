@@ -24,6 +24,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+          pkg-config --atleast-version=2.40 webkit2gtk-4.1 || {
+            echo "libwebkit2gtk-4.1-dev must provide webkit2gtk-4.1 >= 2.40"
+            pkg-config --modversion webkit2gtk-4.1 || true
+            exit 1
+          }
 
       - name: Install Nimble dependencies
         run: nimble install -d -y
@@ -61,6 +66,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb libgtk-3-dev libwebkit2gtk-4.1-dev
+          pkg-config --atleast-version=2.40 webkit2gtk-4.1 || {
+            echo "libwebkit2gtk-4.1-dev must provide webkit2gtk-4.1 >= 2.40"
+            pkg-config --modversion webkit2gtk-4.1 || true
+            exit 1
+          }
 
       # The vcc lane needs the MSVC toolchain on PATH (C++14 for WebView2).
       - name: Set up MSVC
