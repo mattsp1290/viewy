@@ -20,7 +20,7 @@
 ## needs hash routing or served mode because there is no HTTP server to answer
 ## deep links.
 
-when defined(viewyGeneratedAssets):
+when defined(viewyGeneratedAssets) or defined(viewyGeneratedSchemeAssets):
   import viewy_assets
 
 import std/[strutils, tables]
@@ -56,6 +56,17 @@ type
       ## Absolute route path for the asset, for example `/index.html`.
     contentType*: string
       ## Content type returned for this asset.
+    gzipBytes*: string
+      ## Gzip-compressed response body bytes.
+
+  SchemeAssetTableItem* = object
+    ## One generated frontend asset consumable by native scheme backends.
+    path*: string
+      ## Absolute route path for the asset, for example `/index.html`.
+    mimeType*: string
+      ## MIME type returned for this asset.
+    etag*: string
+      ## Stable build hash for cache validators.
     gzipBytes*: string
       ## Gzip-compressed response body bytes.
 
@@ -104,6 +115,26 @@ proc normalizeAssetPath*(path: string): string =
     result = "/"
   if not result.startsWith("/"):
     result = "/" & result
+
+proc generatedSchemeAssets*(): seq[SchemeAssetTableItem] =
+  ## Return scheme assets from the generated `viewy_assets` module.
+  when defined(viewyGeneratedSchemeAssets):
+    for item in viewy_assets.viewySchemeAssets:
+      result.add SchemeAssetTableItem(
+        path: normalizeAssetPath(item.path),
+        mimeType: item.mimeType,
+        etag: item.etag,
+        gzipBytes: item.gzipBytes,
+      )
+  else:
+    @[]
+
+proc generatedSchemeDocumentPath*(): string =
+  ## Return the generated scheme-mode document path.
+  when defined(viewyGeneratedSchemeAssets):
+    normalizeAssetPath(viewy_assets.viewySchemeDocumentPath)
+  else:
+    "/index.html"
 
 proc isHexDigit(c: char): bool =
   c in {'0' .. '9', 'a' .. 'f', 'A' .. 'F'}

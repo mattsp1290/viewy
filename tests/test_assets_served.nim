@@ -66,9 +66,9 @@ doAssert servedAssets[0].gzipBytes == "gz-html"
       createDir(dir / "served")
       writeFile(dir / "served" / "index.html.gz", "gz-html")
       writeFile(dir / "viewy_assets.nim", """
-const viewyServedDocumentPath* = "/index.html"
-const viewyServedAssets* = [
-  (path: "/index.html", contentType: "text/html; charset=utf-8",
+const viewySchemeDocumentPath* = "/index.html"
+const viewySchemeAssets* = [
+  (path: "/index.html", mimeType: "text/html; charset=utf-8", etag: "\"viewy-abc\"",
     gzipBytes: staticRead("served/index.html.gz")),
 ]
 """)
@@ -79,10 +79,18 @@ import viewy/assets
 import viewy/assets_served
 
 doAssert defaultAssetMode == assetsScheme
+let schemeAssets = generatedSchemeAssets()
+doAssert generatedSchemeDocumentPath() == "/index.html"
+doAssert schemeAssets.len == 1
+doAssert schemeAssets[0].path == "/index.html"
+doAssert schemeAssets[0].mimeType == "text/html; charset=utf-8"
+doAssert schemeAssets[0].etag == "\"viewy-abc\""
+doAssert schemeAssets[0].gzipBytes == "gz-html"
 let servedAssets = generatedServedAssets()
 doAssert generatedServedDocumentPath() == "/index.html"
 doAssert servedAssets.len == 1
 doAssert servedAssets[0].path == "/index.html"
+doAssert servedAssets[0].contentType == "text/html; charset=utf-8"
 """)
 
       let cmd = "nim c -r --hints:off --mm:orc --threads:on --path:src --path:" &

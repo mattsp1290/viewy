@@ -54,11 +54,18 @@ proc hexToken(bytes: static[int]): string =
 
 proc generatedServedAssets*(): seq[ServedAsset] =
   ## Return served assets from the generated `viewy_assets` module.
-  when defined(viewyGeneratedServedAssets) or defined(viewyGeneratedSchemeAssets):
+  when defined(viewyGeneratedServedAssets):
     for item in viewy_assets.viewyServedAssets:
       result.add ServedAsset(
         path: normalizeAssetPath(item.path),
         contentType: item.contentType,
+        gzipBytes: item.gzipBytes,
+      )
+  elif defined(viewyGeneratedSchemeAssets):
+    for item in generatedSchemeAssets():
+      result.add ServedAsset(
+        path: item.path,
+        contentType: item.mimeType,
         gzipBytes: item.gzipBytes,
       )
   else:
@@ -66,8 +73,10 @@ proc generatedServedAssets*(): seq[ServedAsset] =
 
 proc generatedServedDocumentPath*(): string =
   ## Return the generated served-mode document path.
-  when defined(viewyGeneratedServedAssets) or defined(viewyGeneratedSchemeAssets):
+  when defined(viewyGeneratedServedAssets):
     normalizeAssetPath(viewy_assets.viewyServedDocumentPath)
+  elif defined(viewyGeneratedSchemeAssets):
+    generatedSchemeDocumentPath()
   else:
     "/index.html"
 

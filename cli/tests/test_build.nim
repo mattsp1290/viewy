@@ -195,6 +195,34 @@ suite "viewy build":
       check not calls[1].command.contains("-d:viewyGeneratedServedAssets")
       check not calls[1].command.contains("-d:viewyGeneratedAssets")
       check fileExists(dir / "src" / "viewy_assets.nim")
+      let generated = readFile(dir / "src" / "viewy_assets.nim")
+      check generated.contains("const viewySchemeDocumentPath* = \"/index.html\"")
+      check generated.contains("const viewySchemeAssets* = [")
+      check generated.contains("mimeType: \"text/javascript; charset=utf-8\"")
+      check generated.contains("etag: \"\\\"viewy-")
+      check generated.contains("const viewyServedAssets* = [")
+      check dirExists(dir / "src" / "viewy_assets_served")
+    finally:
+      removeDir(dir)
+
+  test "generates scheme assets table with MIME and ETag metadata":
+    let dir = createTempDir("viewy-assets-scheme-gen", "")
+    try:
+      createDir(dir / "src")
+      createDir(dir / "frontend" / "dist" / "assets")
+      writeFile(dir / "frontend" / "dist" / "index.html", "<!doctype html>")
+      writeFile(dir / "frontend" / "dist" / "assets" / "app.css", "body{}")
+
+      let outPath = dir / "src" / "viewy_assets.nim"
+      generateSchemeAssets(dir / "frontend" / "dist", outPath)
+
+      let generated = readFile(outPath)
+      check generated.contains("const viewySchemeDocumentPath* = \"/index.html\"")
+      check generated.contains("path: \"/assets/app.css\"")
+      check generated.contains("mimeType: \"text/css; charset=utf-8\"")
+      check generated.contains("etag: \"\\\"viewy-")
+      check generated.contains("gzipBytes: staticRead(")
+      check generated.contains("const viewyServedAssets* = [")
       check dirExists(dir / "src" / "viewy_assets_served")
     finally:
       removeDir(dir)

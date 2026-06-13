@@ -150,8 +150,10 @@ proc buildApp*(cfg: ViewyConfig; release = false; projectDir = ".";
   case runtimeMode
   of runtimeAssets.assetsEmbedded:
     generateSingleFileAssets(distIndex, generatedAssets)
-  of runtimeAssets.assetsServedMode, runtimeAssets.assetsScheme:
+  of runtimeAssets.assetsServedMode:
     generateServedAssets(frontendDir / "dist", generatedAssets)
+  of runtimeAssets.assetsScheme:
+    generateSchemeAssets(frontendDir / "dist", generatedAssets)
   of runtimeAssets.assetsDevServer:
     raise buildError("dev-server asset mode is not valid for production builds")
 
