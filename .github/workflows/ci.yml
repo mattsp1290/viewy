@@ -308,6 +308,13 @@ jobs:
           echo "hello release binary size: ${size} bytes"
           test "$size" -lt 3145728
 
+      - name: Build todo example
+        if: runner.os == 'Linux'
+        working-directory: examples/todo
+        run: |
+          python -c "import os; os.makedirs('build', exist_ok=True)"
+          nim c --hints:off --mm:orc --threads:on -o:build/todo src/main.nim
+
       - name: Run tests (xvfb)
         if: runner.os == 'Linux'
         run: VIEWY_SKIP_WINDOWED=1 xvfb-run -a nimble test -y
