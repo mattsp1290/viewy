@@ -38,9 +38,10 @@ proc newApp*(title = "viewy"; width = 1024; height = 768;
   ## procs, loads either embedded HTML or a dev-server URL, enters the blocking
   ## backend loop, then destroys the handle on exit.
   ##
-  ## When `assets = assetsServedMode`, `assetHandler` runs on the served-mode
-  ## HTTP thread. It must capture only immutable state and must not touch
-  ## backend handles or UI-thread-owned objects.
+  ## When `assets = assetsServedMode` or the current lite fallback for
+  ## `assetsScheme` is active, `assetHandler` runs on the served-mode HTTP
+  ## thread. It must capture only immutable state and must not touch backend
+  ## handles or UI-thread-owned objects.
   App(
     backend: backend,
     title: title,
@@ -90,7 +91,7 @@ proc run*(app: App) =
   ## after `run` returns or raises.
   var servedServer: ServedServer
   when not defined(viewyDev):
-    if app.assets == assetsServedMode:
+    if app.assets == assetsServedMode or app.assets == assetsScheme:
       servedServer = startGeneratedServedServer(app.assetHandler)
 
   try:
@@ -107,6 +108,8 @@ proc run*(app: App) =
       of assetsDevServer:
         app.backend.navigate(app.handle, app.devUrl)
       of assetsServedMode:
+        app.backend.navigate(app.handle, servedServer.documentUrl())
+      of assetsScheme:
         app.backend.navigate(app.handle, servedServer.documentUrl())
       of assetsEmbedded:
         let html = if app.html == defaultEmbeddedHtml: embeddedHtml() else: app.html

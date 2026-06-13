@@ -17,10 +17,9 @@ npm ci
 npm run dev
 ```
 
-Production builds use Vite with `vite-plugin-singlefile` and emit one
-self-contained `dist/index.html`. Keep browser assets under `src/assets/`;
-files in `public/` are copied as separate files and are not inlined by the
-single-file build.
+Production builds emit a Vite `dist/` tree and embed it in the Nim binary as a
+generated asset table. The current lite backend loads those assets through a
+loopback fallback until native scheme backends land.
 
 ## Build
 

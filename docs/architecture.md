@@ -14,7 +14,7 @@ stay behind a narrow vtable.
 |  app.nim      high-level App lifecycle and backend wiring       |
 |  rpc.nim      expose macro, jsony codecs, binding metadata      |
 |  events.nim   backend-to-JavaScript event emission              |
-|  assets.nim   embedded/dev/served asset mode selection          |
+|  assets.nim   embedded/scheme/served/dev asset mode selection   |
 |  runtime_js   injected __viewy browser runtime                  |
 +-----------------------------------------------------------------+
 | Backend abstraction: backend/api.nim                            |
@@ -61,7 +61,7 @@ kept small and explicit:
 - `events.nim` serializes backend-to-JavaScript events into a call to
   `window.__viewy.emit(...)` and sends it through the backend's typed eval
   dispatch path.
-- `assets.nim` chooses embedded, served, or dev-server loading.
+- `assets.nim` chooses embedded, scheme, served, or dev-server loading.
 - `assets_served.nim` implements the optional loopback authenticated asset
   server used by served mode.
 
@@ -126,15 +126,20 @@ envelopes and metadata schema are documented in [protocol.md](protocol.md).
 
 ## Asset Modes
 
-viewy has three content loading modes:
+viewy has four content loading modes:
 
-- Embedded mode is the default production path. The CLI builds a single-file
-  frontend document and generates a Nim module whose `staticRead` content is
-  loaded with `setHtml`. This keeps the production app free of network ports.
-- Served mode is an opt-in production path for apps that need separate static
-  assets or URL-addressed generated files. It embeds gzip-compressed assets,
-  starts a `127.0.0.1:0` HTTP server with per-launch credentials, and navigates
-  the webview to the generated document URL. See [served-mode.md](served-mode.md).
+- Scheme mode is the default production asset mode in new `viewy.json` files.
+  It builds a generated `dist/` asset table. Until native backends implement
+  custom scheme loading, the lite backend consumes that table through the same
+  loopback served-mode fallback as served mode.
+- Embedded mode is the legacy `assets = "single"` production path. The CLI
+  builds a single-file frontend document and generates a Nim module whose
+  `staticRead` content is loaded with `setHtml`.
+- Served mode is the legacy `assets = "served"` production path for apps that
+  need separate static assets or URL-addressed generated files. It embeds
+  gzip-compressed assets, starts a `127.0.0.1:0` HTTP server with per-launch
+  credentials, and navigates the webview to the generated document URL. See
+  [served-mode.md](served-mode.md).
 - Dev mode is selected with `-d:viewyDev=<url>`. The app navigates directly to
   the frontend dev server, normally Vite, so HMR stays in the frontend toolchain.
 

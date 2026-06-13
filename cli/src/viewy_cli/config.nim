@@ -1,9 +1,11 @@
 import std/[os, strutils]
 
 import jsony
+import viewy/assets as runtimeAssets
 
 type
   AssetMode* = enum
+    amScheme = "scheme"
     amSingle = "single"
     amServed = "served"
 
@@ -26,7 +28,7 @@ const DefaultConfig* = ViewyConfig(
   width: 1024,
   height: 768,
   resizable: true,
-  assets: amSingle,
+  assets: amScheme,
   devUrl: "http://127.0.0.1:5173",
   frontendDir: "frontend",
   nimMain: "src/main.nim"
@@ -37,6 +39,18 @@ proc newHook*(cfg: var ViewyConfig) =
 
 proc configError(message: string): ref ConfigError =
   newException(ConfigError, message)
+
+proc toRuntimeAssetMode*(mode: AssetMode): runtimeAssets.AssetMode =
+  ## Authoritative mapping from `viewy.json` asset strings to runtime modes.
+  ##
+  ## `"scheme"` is the v2 default and uses the generated multi-file asset table.
+  ## The lite backend currently loads that table through served-mode fallback;
+  ## native backends will consume the same runtime mode through custom schemes.
+  ## Legacy `"single"` and `"served"` values keep their v1 behavior.
+  case mode
+  of amScheme: runtimeAssets.assetsScheme
+  of amSingle: runtimeAssets.assetsEmbedded
+  of amServed: runtimeAssets.assetsServedMode
 
 proc validate*(cfg: ViewyConfig) =
   if cfg.name.strip.len == 0:

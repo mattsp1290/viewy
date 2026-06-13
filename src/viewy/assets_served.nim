@@ -7,7 +7,7 @@ import std/sysrand
 
 import viewy/assets
 
-when defined(viewyGeneratedServedAssets):
+when defined(viewyGeneratedServedAssets) or defined(viewyGeneratedSchemeAssets):
   import viewy_assets
 
 type
@@ -54,7 +54,7 @@ proc hexToken(bytes: static[int]): string =
 
 proc generatedServedAssets*(): seq[ServedAsset] =
   ## Return served assets from the generated `viewy_assets` module.
-  when defined(viewyGeneratedServedAssets):
+  when defined(viewyGeneratedServedAssets) or defined(viewyGeneratedSchemeAssets):
     for item in viewy_assets.viewyServedAssets:
       result.add ServedAsset(
         path: normalizeAssetPath(item.path),
@@ -66,7 +66,7 @@ proc generatedServedAssets*(): seq[ServedAsset] =
 
 proc generatedServedDocumentPath*(): string =
   ## Return the generated served-mode document path.
-  when defined(viewyGeneratedServedAssets):
+  when defined(viewyGeneratedServedAssets) or defined(viewyGeneratedSchemeAssets):
     normalizeAssetPath(viewy_assets.viewyServedDocumentPath)
   else:
     "/index.html"

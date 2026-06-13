@@ -2,6 +2,7 @@ import std/[os, osproc, strutils]
 
 import assets_gen
 import config
+import viewy/assets as runtimeAssets
 
 type
   BuildError* = object of CatchableError
@@ -145,19 +146,26 @@ proc buildApp*(cfg: ViewyConfig; release = false; projectDir = ".";
     raise buildError("nimMain not found: " & nimMain)
 
   exec.checked("npm run build", frontendDir)
-  case cfg.assets
-  of amSingle:
+  let runtimeMode = cfg.assets.toRuntimeAssetMode
+  case runtimeMode
+  of runtimeAssets.assetsEmbedded:
     generateSingleFileAssets(distIndex, generatedAssets)
-  of amServed:
+  of runtimeAssets.assetsServedMode, runtimeAssets.assetsScheme:
     generateServedAssets(frontendDir / "dist", generatedAssets)
+  of runtimeAssets.assetsDevServer:
+    raise buildError("dev-server asset mode is not valid for production builds")
 
   createDir(buildDir)
   var nimCmd = "nim c --mm:orc --threads:on --path:" & quote(nimSrcDir)
-  case cfg.assets
-  of amSingle:
+  case runtimeMode
+  of runtimeAssets.assetsEmbedded:
     nimCmd.add " -d:viewyGeneratedAssets"
-  of amServed:
+  of runtimeAssets.assetsServedMode:
     nimCmd.add " -d:viewyGeneratedServedAssets"
+  of runtimeAssets.assetsScheme:
+    nimCmd.add " -d:viewyGeneratedSchemeAssets"
+  of runtimeAssets.assetsDevServer:
+    raise buildError("dev-server asset mode is not valid for production builds")
   let libPath = viewyLibPath()
   if libPath.len > 0:
     nimCmd.add " --path:" & quote(libPath)

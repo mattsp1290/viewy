@@ -27,9 +27,14 @@ for that.
 
 ## Asset Modes
 
-Single-file mode embeds one generated HTML document and loads it with
-`setHtml`. It is the default production mode because it uses no port, no temp
-directory, and no local HTTP server.
+Scheme mode is the default asset value for new `viewy.json` files. It generates
+an embedded `dist/` asset table. The current lite backend cannot register a
+native custom scheme yet, so scheme mode uses the served-mode loopback fallback
+until native backends land.
+
+Single-file mode is the legacy `assets = "single"` path. It embeds one generated
+HTML document and loads it with `setHtml`. It uses no port, no temp directory,
+and no local HTTP server.
 
 That also means single-file mode behaves like one static document:
 
@@ -42,9 +47,10 @@ That also means single-file mode behaves like one static document:
 - Relative `fetch()` calls for files next to the document are not a good fit.
   Use served mode if the frontend expects URL-addressable files.
 
-Served mode embeds the built `dist/` tree as gzip-compressed assets and starts
-a loopback-only HTTP server bound to `127.0.0.1` on an ephemeral port. It solves
-separate URL-addressable asset files, but it has real tradeoffs:
+Served mode is the legacy `assets = "served"` path. It embeds the built `dist/`
+tree as gzip-compressed assets and starts a loopback-only HTTP server bound to
+`127.0.0.1` on an ephemeral port. It solves separate URL-addressable asset
+files, but it has real tradeoffs:
 
 - the app owns a local HTTP port for the process lifetime;
 - the initial document URL carries a one-time token;

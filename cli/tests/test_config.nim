@@ -1,6 +1,7 @@
 import std/[os, tempfiles, unittest]
 
 import viewy_cli/config
+import viewy/assets as runtimeAssets
 
 suite "viewy config":
   test "loadConfig returns defaults when viewy.json is absent":
@@ -10,6 +11,7 @@ suite "viewy config":
       setCurrentDir(dir)
       let cfg = loadConfig()
       check cfg == DefaultConfig
+      check cfg.assets == amScheme
     finally:
       setCurrentDir(old)
       removeDir(dir)
@@ -32,12 +34,22 @@ suite "viewy config":
     check cfg.assets == amServed
     check cfg.resizable == false
 
+  test "parseConfig accepts scheme asset mode":
+    let cfg = parseConfig("""{ "assets": "scheme" }""")
+    check cfg.assets == amScheme
+    check cfg.assets.toRuntimeAssetMode == runtimeAssets.assetsScheme
+
   test "parseConfig fills omitted fields from defaults":
     let cfg = parseConfig("""{ "name": "partial" }""")
     check cfg.name == "partial"
     check cfg.title == DefaultConfig.title
     check cfg.width == DefaultConfig.width
     check cfg.assets == DefaultConfig.assets
+
+  test "asset mode mapping preserves legacy behavior":
+    check amScheme.toRuntimeAssetMode == runtimeAssets.assetsScheme
+    check amSingle.toRuntimeAssetMode == runtimeAssets.assetsEmbedded
+    check amServed.toRuntimeAssetMode == runtimeAssets.assetsServedMode
 
   test "parseConfig reports malformed JSON as ConfigError":
     expect ConfigError:

@@ -43,6 +43,8 @@ type
   AssetMode* = enum
     ## Load a self-contained HTML document directly with the backend.
     assetsEmbedded
+    ## Serve generated assets through a backend custom scheme when available.
+    assetsScheme
     ## Serve generated assets from a loopback-only authenticated HTTP server.
     assetsServedMode
     ## Navigate to a development server URL.
@@ -69,7 +71,10 @@ const
   viewyDevUrl* {.strdefine: "viewyDev".} = "http://localhost:5173"
     ## Development server URL selected by `-d:viewyDev=<url>`.
 
-when defined(viewyGeneratedServedAssets):
+when defined(viewyGeneratedSchemeAssets):
+  const defaultAssetMode* = assetsScheme
+    ## Default asset mode selected at compile time.
+elif defined(viewyGeneratedServedAssets):
   const defaultAssetMode* = assetsServedMode
     ## Default asset mode selected at compile time.
 else:
