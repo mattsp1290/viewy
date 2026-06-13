@@ -4,7 +4,8 @@ import std/[asyncdispatch, asynchttpserver, atomics, nativesockets, net, os,
     strutils, tables, uri]
 import std/httpcore
 import std/sysrand
-import zippy
+
+import viewy/assets
 
 when defined(viewyGeneratedServedAssets):
   import viewy_assets
@@ -35,6 +36,7 @@ type
     documentToken: string
     sessionToken: string
     port: Port
+    assetHandler: AssetHandler
     stopped: bool
 
 proc servedModeError(message: string): ref ServedModeError =
@@ -49,13 +51,6 @@ proc hexToken(bytes: static[int]): string =
   for b in raw:
     result.add hex[int(b shr 4)]
     result.add hex[int(b and 0x0f)]
-
-proc normalizeAssetPath(path: string): string =
-  result = path.replace("\\", "/")
-  if result.len == 0:
-    result = "/"
-  if not result.startsWith("/"):
-    result = "/" & result
 
 proc generatedServedAssets*(): seq[ServedAsset] =
   ## Return served assets from the generated `viewy_assets` module.
@@ -94,20 +89,15 @@ proc hasSessionCredential(headers: HttpHeaders; sessionToken: string): bool =
   let auth = headers.getOrDefault("Authorization").strip
   auth == "Bearer " & sessionToken
 
-proc headers(contentType: string; extra: openArray[(string, string)] = []): HttpHeaders =
-  result = newHttpHeaders([
-    ("Content-Type", contentType),
-    ("Content-Encoding", "gzip"),
-    ("Cache-Control", "no-store"),
-  ])
+proc httpHeaders(response: AssetResponse;
+    extra: openArray[(string, string)] = []): HttpHeaders =
+  result = newHttpHeaders()
+  if response.mimeType.len > 0:
+    result["Content-Type"] = response.mimeType
+  for header in response.headers:
+    result[header.name] = header.value
   for (key, value) in extra:
     result[key] = value
-
-proc rewriteAbsoluteAssetUrls(html, prefix: string): string =
-  result = html
-  for attr in ["src", "href"]:
-    result = result.replace(attr & "=\"/", attr & "=\"/" & prefix & "/")
-    result = result.replace(attr & "='/", attr & "='/" & prefix & "/")
 
 proc textHeaders(): HttpHeaders =
   newHttpHeaders([
@@ -133,6 +123,30 @@ proc isDocumentRoute(s: ServedServer; requestPath, assetPath: string): bool =
 proc isRpcRoute(s: ServedServer; requestPath: string): bool =
   requestPath == "/" & s.prefix & "/__viewy_rpc" or
     requestPath.startsWith("/" & s.prefix & "/__viewy_rpc/")
+
+proc requestMethod(reqMethod: HttpMethod): string =
+  case reqMethod
+  of HttpGet: "GET"
+  of HttpHead: "HEAD"
+  of HttpPost: "POST"
+  of HttpPut: "PUT"
+  of HttpDelete: "DELETE"
+  of HttpPatch: "PATCH"
+  of HttpOptions: "OPTIONS"
+  else: $reqMethod
+
+proc requestHeaders(headers: HttpHeaders): seq[Header] =
+  for key, value in headers:
+    result.add (name: key, value: value)
+
+proc toHttpCode(status: int): HttpCode =
+  case status
+  of 200: Http200
+  of 400: Http400
+  of 401: Http401
+  of 404: Http404
+  of 405: Http405
+  else: Http500
 
 proc handleRequest(s: ServedServer; req: Request): Future[void] {.async, gcsafe.} =
   if req.reqMethod != HttpGet and req.reqMethod != HttpHead:
@@ -169,23 +183,20 @@ proc handleRequest(s: ServedServer; req: Request): Future[void] {.async, gcsafe.
     await req.respondText(Http401, "unauthorized")
     return
 
-  if not s.assets.hasKey(assetPath):
-    await req.respondText(Http404, "not found")
-    return
-
-  let asset = s.assets[assetPath]
   var extra: seq[(string, string)]
   if setCookie.len > 0:
     extra.add ("Set-Cookie", setCookie)
-  var responseBytes = asset.gzipBytes
-  if assetPath == s.documentPath and req.reqMethod != HttpHead:
-    try:
-      responseBytes = compress(rewriteAbsoluteAssetUrls(uncompress(
-          asset.gzipBytes), s.prefix))
-    except CatchableError:
-      discard
-  let content = if req.reqMethod == HttpHead: "" else: responseBytes
-  await req.respond(Http200, content, headers(asset.contentType, extra))
+
+  let response = s.assetHandler(AssetRequest(
+    scheme: "http",
+    httpMethod: requestMethod(req.reqMethod),
+    path: assetPath,
+    query: req.url.query,
+    headers: requestHeaders(req.headers),
+    body: "",
+  ))
+  await req.respond(response.status.toHttpCode, response.body,
+    httpHeaders(response, extra))
 
 proc serverLoop(s: ServedServer) {.thread.} =
   proc callback(req: Request): Future[void] {.async, gcsafe.} =
@@ -223,7 +234,7 @@ proc serverLoop(s: ServedServer) {.thread.} =
 proc stop*(s: ServedServer)
 
 proc startServedServer*(assets: openArray[ServedAsset];
-    documentPath = "/index.html"): ServedServer =
+    documentPath = "/index.html"; assetHandler: AssetHandler = nil): ServedServer =
   ## Start a headless served-mode loopback server.
   if assets.len == 0:
     raise servedModeError("served mode has no generated assets")
@@ -243,6 +254,19 @@ proc startServedServer*(assets: openArray[ServedAsset];
   if not result.assets.hasKey(result.documentPath):
     raise servedModeError("served document not found: " & result.documentPath)
 
+  var tableItems: seq[AssetTableItem]
+  for asset in result.assets.values:
+    tableItems.add AssetTableItem(
+      path: asset.path,
+      contentType: asset.contentType,
+      gzipBytes: asset.gzipBytes,
+    )
+  result.assetHandler =
+    if assetHandler.isNil:
+      assetTableHandler(tableItems, result.documentPath, result.prefix)
+    else:
+      assetHandler
+
   createThread(result.thread, serverLoop, result)
   for _ in 0 ..< 500:
     if result.started.load:
@@ -255,9 +279,10 @@ proc startServedServer*(assets: openArray[ServedAsset];
   result.stop()
   raise servedModeError("served mode server did not report a port")
 
-proc startGeneratedServedServer*(): ServedServer =
+proc startGeneratedServedServer*(assetHandler: AssetHandler = nil): ServedServer =
   ## Start a server from generated served-mode assets.
-  startServedServer(generatedServedAssets(), generatedServedDocumentPath())
+  startServedServer(generatedServedAssets(), generatedServedDocumentPath(),
+    assetHandler)
 
 proc stop*(s: ServedServer) =
   ## Stop a served-mode server and join its thread.

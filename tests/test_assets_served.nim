@@ -1,6 +1,7 @@
 import std/[httpclient, nativesockets, net, os, osproc, strutils, tempfiles,
     unittest]
 
+import viewy/assets
 import viewy/assets_served
 import zippy
 
@@ -113,3 +114,23 @@ doAssert servedAssets[0].gzipBytes == "gz-html"
         break
       sleep(20)
     check not canConnect(server.port)
+
+  test "custom asset handler supplies served responses":
+    proc customHandler(request: AssetRequest): AssetResponse {.gcsafe.} =
+      check request.path == "/index.html"
+      assetResponse(200, "OK", "text/html; charset=utf-8",
+        compress("<!doctype html><main>custom</main>"), [
+        Header((name: "Content-Encoding", value: "gzip")),
+        Header((name: "Cache-Control", value: "no-store")),
+      ])
+
+    let server = startServedServer([
+      ServedAsset(path: "/index.html", contentType: "text/html; charset=utf-8",
+        gzipBytes: compress("<!doctype html><main>placeholder</main>")),
+    ], assetHandler = customHandler)
+    defer: server.stop()
+
+    var client = newHttpClient()
+    let doc = client.request(server.documentUrl())
+    check doc.getStatus == 200
+    check uncompress(doc.body).contains("<main>custom</main>")

@@ -23,6 +23,13 @@
 when defined(viewyGeneratedAssets):
   import viewy_assets
 
+import std/[strutils, tables]
+
+import viewy/backend/api
+import zippy
+
+export AssetHandler, AssetRequest, AssetResponse, Header
+
 type
   AssetMode* = enum
     ## Load a self-contained HTML document directly with the backend.
@@ -31,6 +38,15 @@ type
     assetsServedMode
     ## Navigate to a development server URL.
     assetsDevServer
+
+  AssetTableItem* = object
+    ## One generated frontend asset consumable by an `AssetHandler`.
+    path*: string
+      ## Absolute route path for the asset, for example `/index.html`.
+    contentType*: string
+      ## Content type returned for this asset.
+    gzipBytes*: string
+      ## Gzip-compressed response body bytes.
 
 const
   generatedAssetsModuleName* = "viewy_assets"
@@ -62,3 +78,66 @@ proc embeddedHtml*(): string =
     viewy_assets.viewyEmbeddedHtml
   else:
     fallbackEmbeddedHtml
+
+proc normalizeAssetPath*(path: string): string =
+  ## Normalize a generated asset path into an absolute route path.
+  result = path.replace("\\", "/")
+  if result.len == 0:
+    result = "/"
+  if not result.startsWith("/"):
+    result = "/" & result
+
+proc rewriteAbsoluteAssetUrls*(html, prefix: string): string =
+  ## Rewrite root-absolute frontend asset URLs under the served-mode prefix.
+  result = html
+  for attr in ["src", "href"]:
+    result = result.replace(attr & "=\"/", attr & "=\"/" & prefix & "/")
+    result = result.replace(attr & "='/", attr & "='/" & prefix & "/")
+
+proc assetResponse*(status: int; statusText, mimeType, body: string;
+    headers: openArray[Header] = []): AssetResponse =
+  ## Build a complete asset response.
+  AssetResponse(
+    status: status,
+    statusText: statusText,
+    mimeType: mimeType,
+    headers: @headers,
+    body: body,
+  )
+
+proc assetTableHandler*(assets: openArray[AssetTableItem];
+    documentPath = "/index.html"; rewritePrefix = ""): AssetHandler =
+  ## Return an `AssetHandler` backed by a generated asset table.
+  ##
+  ## The handler owns lookup and response construction for both loopback served
+  ## mode and future native scheme backends. Authentication, scheme routing,
+  ## and platform request adaptation stay outside this table adapter.
+  var table: Table[string, AssetTableItem]
+  let normalizedDocumentPath = normalizeAssetPath(documentPath)
+  for asset in assets:
+    var item = asset
+    item.path = normalizeAssetPath(item.path)
+    table[item.path] = item
+
+  result = proc(request: AssetRequest): AssetResponse {.gcsafe.} =
+    let requestPath = normalizeAssetPath(request.path)
+    let assetPath = if requestPath == "/": normalizedDocumentPath else: requestPath
+    if not table.hasKey(assetPath):
+      return assetResponse(404, "Not Found", "text/plain; charset=utf-8",
+        "not found", [Header((name: "Cache-Control", value: "no-store"))])
+
+    let asset = table[assetPath]
+    var responseBytes = asset.gzipBytes
+    if assetPath == normalizedDocumentPath and rewritePrefix.len > 0 and
+        request.httpMethod != "HEAD":
+      try:
+        responseBytes = compress(rewriteAbsoluteAssetUrls(uncompress(
+            asset.gzipBytes), rewritePrefix))
+      except CatchableError:
+        discard
+
+    let content = if request.httpMethod == "HEAD": "" else: responseBytes
+    assetResponse(200, "OK", asset.contentType, content, [
+      Header((name: "Content-Encoding", value: "gzip")),
+      Header((name: "Cache-Control", value: "no-store")),
+    ])

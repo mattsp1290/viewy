@@ -21,12 +21,14 @@ type
     resizable: bool
     debug: bool
     assets: AssetMode
+    assetHandler: AssetHandler
     html: string
     devUrl: string
 
 proc newApp*(title = "viewy"; width = 1024; height = 768;
     resizable = true; assets = defaultAssetMode; html = defaultEmbeddedHtml;
-    devUrl = "http://localhost:5173"; debug = false;
+    assetHandler: AssetHandler = nil; devUrl = "http://localhost:5173";
+        debug = false;
     backend = newBackend()): App =
   ## Create an app configuration.
   ##
@@ -43,6 +45,7 @@ proc newApp*(title = "viewy"; width = 1024; height = 768;
     resizable: resizable,
     debug: debug,
     assets: assets,
+    assetHandler: assetHandler,
     html: html,
     devUrl: devUrl,
   )
@@ -84,7 +87,7 @@ proc run*(app: App) =
   var servedServer: ServedServer
   when not defined(viewyDev):
     if app.assets == assetsServedMode:
-      servedServer = startGeneratedServedServer()
+      servedServer = startGeneratedServedServer(app.assetHandler)
 
   try:
     app.handle = app.backend.create(app.debug)
