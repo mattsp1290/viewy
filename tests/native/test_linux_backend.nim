@@ -5,6 +5,7 @@ else:
 
   import viewy/backend/api
   import viewy/backend/native/linux/backend
+  import viewy/runtime_js
 
   let nativeBackend = newBackend()
 
@@ -35,11 +36,27 @@ else:
     nativeBackend.setHtml(handle, "<html></html>")
     nativeBackend.eval(handle, "void 0")
     nativeBackend.init(handle, "globalThis.viewy = true")
+    nativeBackend.bindFn(handle, "ready", proc(id,
+        jsonArgs: string) {.gcsafe.} =
+      discard id
+      discard jsonArgs)
+    nativeBackend.resolve(handle, "1", true, "\"ok\"")
+    nativeBackend.dispatchEval(handle, "globalThis.viewyEval = true")
+    nativeBackend.dispatchResolve(handle, "2", false,
+      """{"error":{"message":"ValueError","type":"ValueError"}}""")
     nativeBackend.dispatch(handle, proc() {.gcsafe.} = discard)
     nativeBackend.dispatchTerminate(handle)
 
   proc terminateFromWorker(h: BackendHandle) {.thread.} =
     newBackend().dispatchTerminate(h)
+
+  proc resolveDone(h: BackendHandle; id: string) {.gcsafe.} =
+    {.cast(gcsafe).}:
+      newBackend().resolve(h, id, true, "\"done\"")
+
+  proc dispatchTerminate(h: BackendHandle) {.gcsafe.} =
+    {.cast(gcsafe).}:
+      newBackend().dispatchTerminate(h)
 
   proc smokeMainThreadTerminate() =
     let h = nativeBackend.create(false)
@@ -61,8 +78,45 @@ else:
     joinThread(worker)
     nativeBackend.destroy(h)
 
+  proc smokeBindingRoundTrip() =
+    var
+      seen = false
+      seenId = ""
+      seenArgs = ""
+    let h = nativeBackend.create(false)
+    nativeBackend.init(h, viewyRuntimeJs)
+    nativeBackend.bindFn(h, "ready", proc(id, jsonArgs: string) {.gcsafe.} =
+      {.cast(gcsafe).}:
+        seen = true
+        seenId = id
+        seenArgs = jsonArgs
+      resolveDone(h, id)
+    )
+    nativeBackend.bindFn(h, "done", proc(id, jsonArgs: string) {.gcsafe.} =
+      discard id
+      discard jsonArgs
+      dispatchTerminate(h)
+    )
+    nativeBackend.setHtml(h, """
+<!doctype html>
+<script>
+window.ready("ok").then(function(value) {
+  if (value !== "done") throw new Error("unexpected value");
+  return window.done();
+}).catch(function(error) {
+  window.done(String(error && error.message || error));
+});
+</script>
+""")
+    nativeBackend.run(h)
+    nativeBackend.destroy(h)
+    doAssert seen
+    doAssert seenId.len > 0
+    doAssert seenArgs == """["ok"]"""
+
   if getEnv("VIEWY_NATIVE_LINUX_SMOKE") == "1":
     smokeMainThreadTerminate()
     smokeWorkerTerminate()
+    smokeBindingRoundTrip()
 
   echo "ok: linux native backend declarations"

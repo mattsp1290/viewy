@@ -176,6 +176,9 @@ proc gObjectRef*(obj: pointer): pointer
 proc gObjectUnref*(obj: pointer)
   {.importc: "g_object_unref", header: "glib-object.h", cdecl.}
 
+proc gFree*(mem: pointer)
+  {.importc: "g_free", header: "glib.h", cdecl.}
+
 proc gSignalConnectData*(instance: pointer; detailedSignal: cstring;
     callback: pointer; data: pointer; destroyData: GDestroyNotify;
     connectFlags: GConnectFlags): culong

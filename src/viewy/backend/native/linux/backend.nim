@@ -1,15 +1,19 @@
 ## Native Linux backend backed by GTK3 and WebKitGTK 4.1.
 ##
-## This module owns the core window/webview lifecycle. Higher-level native
-## features such as RPC binding, custom schemes, menus, and tray integration are
-## implemented by later backend slices.
+## This module owns the core window/webview lifecycle and JavaScript binding
+## bridge. Higher-level native features such as custom schemes, menus, and tray
+## integration are implemented by later backend slices.
 
-import std/locks
+import std/[locks, strutils]
 
 import ../../api
 import ./webkitgtk_ffi
 
+import jsony
+
 export api
+
+const nativeHandlerName = "viewy"
 
 type
   LinuxBackendError* = object of CatchableError
@@ -25,9 +29,16 @@ type
     webviewWidget: ptr GtkWidget
     webview: ptr WebKitWebView
 
+  Binding = ref object
+    name: string
+    cb: BindCallback
+
   LinuxState = ref object
     shared: ptr SharedState
+    bindings: seq[Binding]
     dispatches: seq[DispatchSlot]
+    handlerConnected: bool
+    handlerRegistered: bool
 
   DispatchSlot = ref object
     fn: DispatchProc
@@ -38,6 +49,26 @@ type
 
   TerminatePayload = object
     shared: ptr SharedState
+
+  HandoffKind = enum
+    hkEval
+    hkResolve
+
+  SharedBytes = object
+    len: int
+    data: ptr UncheckedArray[char]
+
+  HandoffPayload = object
+    shared: ptr SharedState
+    kind: HandoffKind
+    ok: bool
+    a: SharedBytes
+    b: SharedBytes
+
+  NativeCall = object
+    name: string
+    id: string
+    args: string
 
 var liveStates {.global.}: seq[LinuxState]
 
@@ -72,6 +103,74 @@ proc requireOpen(shared: ptr SharedState; op: string) =
 proc toBool(value: bool): GBoolean =
   if value: gTrue else: gFalse
 
+proc initSharedBytes(value: string): SharedBytes =
+  result.len = value.len
+  result.data = cast[ptr UncheckedArray[char]](allocShared0(value.len + 1))
+  if result.data == nil:
+    raise newException(LinuxBackendError, "gtk handoff allocation failed")
+  if value.len > 0:
+    copyMem(addr result.data[0], unsafeAddr value[0], value.len)
+
+proc free(bytes: var SharedBytes) {.gcsafe.} =
+  if bytes.data != nil:
+    deallocShared(bytes.data)
+    bytes.data = nil
+  bytes.len = 0
+
+proc toString(bytes: SharedBytes): string =
+  result = newString(bytes.len)
+  if bytes.len > 0:
+    copyMem(addr result[0], addr bytes.data[0], bytes.len)
+
+proc freePayload(payload: ptr HandoffPayload) {.gcsafe.} =
+  if payload != nil:
+    payload.a.free()
+    payload.b.free()
+    deallocShared(payload)
+
+proc newPayload(shared: ptr SharedState; kind: HandoffKind; a: string; b = "";
+    ok = false): ptr HandoffPayload =
+  result = cast[ptr HandoffPayload](allocShared0(sizeof(HandoffPayload)))
+  if result == nil:
+    raise newException(LinuxBackendError, "gtk handoff allocation failed")
+  try:
+    result.shared = shared
+    result.kind = kind
+    result.ok = ok
+    result.a = initSharedBytes(a)
+    result.b = initSharedBytes(b)
+  except CatchableError:
+    freePayload(result)
+    raise
+
+proc jsCall(expr: string): string =
+  "(function(){try{" & expr & "}catch(e){setTimeout(function(){throw e;},0);}})();"
+
+proc resolveScript(id: string; ok: bool; jsonResult: string): string =
+  jsCall("if(window.__viewy&&window.__viewy._resolve)window.__viewy._resolve(" &
+      id.toJson() & "," & (if ok: "true" else: "false") & "," &
+      jsonResult.toJson() & ");")
+
+proc bindScript(name: string): string =
+  jsCall("""
+var w=window,v=w.__viewy||(w.__viewy={}),p=v._p||(v._p={}),s=Array.prototype.slice;
+v._seq=v._seq||0;
+v._resolve=v._resolve||function(id,ok,json){
+  var q=p[id],value;
+  if(!q)return;
+  delete p[id];
+  try{value=json===""?undefined:JSON.parse(json);}catch(e){ok=false;value=e;}
+  (ok?q.resolve:q.reject)(value);
+};
+w[$1]=function(){
+  var args=s.call(arguments),id=String(++v._seq);
+  return new Promise(function(resolve,reject){
+    p[id]={resolve:resolve,reject:reject};
+    w.webkit.messageHandlers.$2.postMessage(JSON.stringify({name:$1,id:id,args:JSON.stringify(args)}));
+  });
+};
+""" % [name.toJson(), nativeHandlerName])
+
 proc rootState(state: LinuxState) =
   liveStates.add state
 
@@ -80,6 +179,17 @@ proc unrootState(state: LinuxState) =
     if liveStates[i] == state:
       liveStates.delete i
       return
+
+proc removeBinding(state: LinuxState; name: string) =
+  for i in 0 ..< state.bindings.len:
+    if state.bindings[i].name == name:
+      state.bindings.delete i
+      return
+
+proc findBinding(state: LinuxState; name: string): Binding =
+  for binding in state.bindings:
+    if binding.name == name:
+      return binding
 
 proc closeFromUiThread(state: LinuxState) =
   let shared = state.shared
@@ -102,6 +212,10 @@ proc closeFromUiThread(state: LinuxState) =
   shared.manager = nil
   release(shared.lock)
 
+  if state.handlerRegistered and manager != nil:
+    webkitUserContentManagerUnregisterScriptMessageHandler(manager,
+        nativeHandlerName)
+    state.handlerRegistered = false
   if window != nil:
     gtkWidgetDestroy(window)
   if manager != nil:
@@ -170,6 +284,74 @@ proc terminateCb(data: pointer): GBoolean {.cdecl, gcsafe.} =
   gtkMainQuit()
   gFalse
 
+proc handoffCb(data: pointer): GBoolean {.cdecl, gcsafe.} =
+  var payload = cast[ptr HandoffPayload](data)
+  if payload == nil:
+    return gFalse
+
+  try:
+    let shared = payload.shared
+    let kind = payload.kind
+    let ok = payload.ok
+    let a = payload.a.toString()
+    let b = payload.b.toString()
+    freePayload(payload)
+    payload = nil
+
+    var webview: ptr WebKitWebView
+    acquire(shared.lock)
+    if not shared.closed:
+      webview = shared.webview
+    release(shared.lock)
+
+    if webview != nil:
+      case kind
+      of hkEval:
+        webkitWebViewEvaluateJavascript(webview, a.cstring, int64(a.len), nil,
+            nil, nil, nil, nil)
+      of hkResolve:
+        let script = resolveScript(a, ok, b)
+        webkitWebViewEvaluateJavascript(webview, script.cstring, int64(
+            script.len), nil, nil, nil, nil, nil)
+  except CatchableError:
+    freePayload(payload)
+
+  gFalse
+
+proc dispatchPayload(shared: ptr SharedState; payload: ptr HandoffPayload) =
+  if gIdleAdd(handoffCb, payload) == 0:
+    freePayload(payload)
+    raise newException(LinuxBackendError, "g_idle_add failed")
+
+proc messageToString(jsResult: ptr WebKitJavascriptResult): string =
+  if jsResult == nil:
+    return ""
+  let value = webkitJavascriptResultGetJsValue(jsResult)
+  if value == nil:
+    return ""
+  let cstr = jscValueToString(value)
+  if cstr == nil:
+    return ""
+  result = $cstr
+  gFree(cstr)
+
+proc scriptMessageCb(manager: ptr WebKitUserContentManager;
+    jsResult: ptr WebKitJavascriptResult; data: pointer) {.cdecl, gcsafe.} =
+  discard manager
+  let state = cast[LinuxState](data)
+  try:
+    let message = messageToString(jsResult)
+    if message.len == 0:
+      return
+    let call = message.fromJson(NativeCall)
+    let binding = block:
+      {.cast(gcsafe).}:
+        state.findBinding(call.name)
+    if binding != nil:
+      binding.cb(call.id, call.args)
+  except CatchableError:
+    discard
+
 proc create(debug: bool): BackendHandle =
   var
     argc: cint
@@ -228,6 +410,7 @@ proc create(debug: bool): BackendHandle =
 
   let state = LinuxState(
     shared: shared,
+    bindings: @[],
     dispatches: @[],
   )
   rootState state
@@ -290,17 +473,23 @@ proc unsupported(op: string): ref LinuxBackendError =
   newException(LinuxBackendError, op & " is not implemented by the native Linux backend yet")
 
 proc dispatchEval(h: BackendHandle; js: string) {.gcsafe.} =
-  discard h
-  discard js
-  raise unsupported("dispatchEval")
+  let shared = h.toShared
+  acquire(shared.lock)
+  try:
+    shared.requireOpen("g_idle_add")
+    dispatchPayload(shared, newPayload(shared, hkEval, js))
+  finally:
+    release(shared.lock)
 
 proc dispatchResolve(h: BackendHandle; id: string; ok: bool;
     jsonResult: string) {.gcsafe.} =
-  discard h
-  discard id
-  discard ok
-  discard jsonResult
-  raise unsupported("dispatchResolve")
+  let shared = h.toShared
+  acquire(shared.lock)
+  try:
+    shared.requireOpen("g_idle_add")
+    dispatchPayload(shared, newPayload(shared, hkResolve, id, jsonResult, ok))
+  finally:
+    release(shared.lock)
 
 proc dispatchTerminate(h: BackendHandle) {.gcsafe.} =
   let shared = h.toShared
@@ -376,8 +565,7 @@ proc eval(h: BackendHandle; js: string) =
   webkitWebViewEvaluateJavascript(state.shared.webview, js.cstring, int64(
       js.len), nil, nil, nil, nil, nil)
 
-proc init(h: BackendHandle; js: string) =
-  let state = h.toState
+proc addUserScript(state: LinuxState; js: string) =
   state.assertUiThread
   state.requireOpen("webkit_user_content_manager_add_script")
   let script = webkitUserScriptNew(js.cstring, webkitUserContentInjectTopFrame,
@@ -387,24 +575,48 @@ proc init(h: BackendHandle; js: string) =
   webkitUserContentManagerAddScript(state.shared.manager, script)
   webkitUserScriptUnref(script)
 
+proc init(h: BackendHandle; js: string) =
+  h.toState.addUserScript(js)
+
 proc bindFn(h: BackendHandle; name: string; cb: BindCallback) =
-  discard h
-  discard name
-  if cb == nil:
-    discard
-  raise unsupported("bindFn")
+  let state = h.toState
+  state.assertUiThread
+  state.requireOpen("webkit_user_content_manager_register_script_message_handler")
+  if state.findBinding(name) != nil:
+    raise newException(LinuxBackendError,
+        "native Linux bind failed: duplicate binding " & name)
+
+  if not state.handlerConnected:
+    discard gSignalConnectData(state.shared.manager,
+        "script-message-received::" & nativeHandlerName, cast[pointer](
+        scriptMessageCb),
+        cast[pointer](state), nil, gConnectDefault)
+    state.handlerConnected = true
+
+  if not state.handlerRegistered:
+    if webkitUserContentManagerRegisterScriptMessageHandler(
+        state.shared.manager, nativeHandlerName) == gFalse:
+      raise newException(LinuxBackendError,
+          "webkit_user_content_manager_register_script_message_handler failed")
+    state.handlerRegistered = true
+
+  let binding = Binding(name: name, cb: cb)
+  state.bindings.add binding
+  state.addUserScript(bindScript(name))
 
 proc unbind(h: BackendHandle; name: string) =
-  discard h
-  discard name
-  raise unsupported("unbind")
+  let state = h.toState
+  state.assertUiThread
+  state.removeBinding(name)
+  state.addUserScript(jsCall("delete window[" & name.toJson() & "];"))
 
 proc resolve(h: BackendHandle; id: string; ok: bool; jsonResult: string) =
-  discard h
-  discard id
-  discard ok
-  discard jsonResult
-  raise unsupported("resolve")
+  let state = h.toState
+  state.assertUiThread
+  state.requireOpen("webkit_web_view_evaluate_javascript")
+  let script = resolveScript(id, ok, jsonResult)
+  webkitWebViewEvaluateJavascript(state.shared.webview, script.cstring, int64(
+      script.len), nil, nil, nil, nil, nil)
 
 proc newBackend*(): Backend =
   Backend(
