@@ -128,6 +128,18 @@ proc emitMacBundle(cfg: ViewyConfig; binaryPath, buildDir: string): string =
     discard buildDir
     result = ""
 
+proc backendDefine(runtimeMode: runtimeAssets.AssetMode): string =
+  case runtimeMode
+  of runtimeAssets.assetsScheme:
+    when defined(linux):
+      "-d:viewyBackend=native"
+    else:
+      "-d:viewyBackend=lite"
+  of runtimeAssets.assetsEmbedded, runtimeAssets.assetsServedMode:
+    "-d:viewyBackend=lite"
+  of runtimeAssets.assetsDevServer:
+    raise buildError("dev-server asset mode is not valid for production builds")
+
 proc buildApp*(cfg: ViewyConfig; release = false; projectDir = ".";
     exec: ExecProc = defaultExec): string =
   ## Build the configured app and return a human-readable summary.
@@ -158,8 +170,8 @@ proc buildApp*(cfg: ViewyConfig; release = false; projectDir = ".";
     raise buildError("dev-server asset mode is not valid for production builds")
 
   createDir(buildDir)
-  var nimCmd = "nim c --mm:orc --threads:on -d:viewyBackend=lite --path:" &
-      quote(nimSrcDir)
+  var nimCmd = "nim c --mm:orc --threads:on " & backendDefine(runtimeMode) &
+    " --path:" & quote(nimSrcDir)
   case runtimeMode
   of runtimeAssets.assetsEmbedded:
     nimCmd.add " -d:viewyGeneratedAssets"

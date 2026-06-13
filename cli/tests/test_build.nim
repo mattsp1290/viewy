@@ -1,10 +1,20 @@
-import std/[os, strutils, tempfiles, unittest]
+import std/[algorithm, os, strutils, tempfiles, unittest]
 
 import viewy_cli/assets_gen
 import viewy_cli/build
 import viewy_cli/config
+import zippy
 
 suite "viewy build":
+  proc readSidecars(dir: string): seq[string] =
+    var files: seq[string]
+    for file in walkDirRec(dir):
+      if fileExists(file):
+        files.add file
+    files.sort()
+    for file in files:
+      result.add readFile(file)
+
   test "generates staticRead assets relative to the app source dir":
     let dir = createTempDir("viewy-assets-gen", "")
     try:
@@ -190,7 +200,11 @@ suite "viewy build":
       let output = buildApp(cfg, projectDir = dir, exec = fakeExec)
 
       check output.contains("Built binary:")
-      check calls[1].command.contains("-d:viewyBackend=lite")
+      when defined(linux):
+        check calls[1].command.contains("-d:viewyBackend=native")
+        check not calls[1].command.contains("-d:viewyBackend=lite")
+      else:
+        check calls[1].command.contains("-d:viewyBackend=lite")
       check calls[1].command.contains("-d:viewyGeneratedSchemeAssets")
       check not calls[1].command.contains("-d:viewyGeneratedServedAssets")
       check not calls[1].command.contains("-d:viewyGeneratedAssets")
@@ -205,7 +219,7 @@ suite "viewy build":
     finally:
       removeDir(dir)
 
-  test "generates scheme assets table with MIME and ETag metadata":
+  test "generates scheme assets table with MIME, build ETag, and stable gzip":
     let dir = createTempDir("viewy-assets-scheme-gen", "")
     try:
       createDir(dir / "src")
@@ -224,6 +238,24 @@ suite "viewy build":
       check generated.contains("gzipBytes: staticRead(")
       check generated.contains("const viewyServedAssets* = [")
       check dirExists(dir / "src" / "viewy_assets_served")
+
+      let firstSidecars = readSidecars(dir / "src" / "viewy_assets_served")
+      check firstSidecars.len == 2
+      check uncompress(firstSidecars[0]).len > 0
+
+      generateSchemeAssets(dir / "frontend" / "dist", outPath)
+      let secondSidecars = readSidecars(dir / "src" / "viewy_assets_served")
+      check firstSidecars == secondSidecars
+
+      let firstEtagStart = generated.find("etag: ")
+      let secondEtagStart = generated.find("etag: ", firstEtagStart + 1)
+      check firstEtagStart >= 0
+      check secondEtagStart >= 0
+      if firstEtagStart >= 0 and secondEtagStart >= 0:
+        let firstEtagEnd = generated.find(", gzipBytes", firstEtagStart)
+        let secondEtagEnd = generated.find(", gzipBytes", secondEtagStart)
+        check generated[firstEtagStart ..< firstEtagEnd] ==
+          generated[secondEtagStart ..< secondEtagEnd]
     finally:
       removeDir(dir)
 

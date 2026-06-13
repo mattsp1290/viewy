@@ -102,6 +102,71 @@ doAssert servedAssets[0].contentType == "text/html; charset=utf-8"
     finally:
       removeDir(dir)
 
+  test "generated scheme assets start served fallback server":
+    let dir = createTempDir("viewy_assets_scheme_server_", "")
+    try:
+      createDir(dir / "served")
+      writeFile(dir / "served" / "index.html.gz",
+        compress("""<!doctype html><script src="/assets/app.js"></script>"""))
+      writeFile(dir / "served" / "app.js.gz", compress("console.log(1)"))
+      writeFile(dir / "viewy_assets.nim", """
+const viewySchemeDocumentPath* = "/index.html"
+const viewySchemeAssets* = [
+  (path: "/index.html", mimeType: "text/html; charset=utf-8", etag: "\"viewy-abc\"",
+    gzipBytes: staticRead("served/index.html.gz")),
+  (path: "/assets/app.js", mimeType: "text/javascript; charset=utf-8", etag: "\"viewy-abc\"",
+    gzipBytes: staticRead("served/app.js.gz")),
+]
+""")
+
+      let sample = dir / "check_generated_scheme_server.nim"
+      writeFile(sample, """
+import std/[httpclient, strutils]
+
+import viewy/assets_served
+import zippy
+
+proc getStatus(resp: Response): int =
+  parseInt(resp.status.split(' ')[0])
+
+proc header(resp: Response; name: string): string =
+  for key, value in resp.headers:
+    if cmpIgnoreCase(key, name) == 0:
+      return value
+
+proc main() =
+  let server = startGeneratedServedServer()
+  try:
+    let base = "http://127.0.0.1:" & $server.port.uint16
+    var client = newHttpClient()
+
+    let doc = client.request(server.documentUrl())
+    doAssert doc.getStatus == 200
+    doAssert uncompress(doc.body).contains("src=\"/" & server.prefix & "/assets/app.js\"")
+    let cookie = doc.header("set-cookie")
+    doAssert cookie.contains("__viewy_session=")
+
+    client.headers = newHttpHeaders({"Cookie": cookie.split(';')[0]})
+    let asset = client.request(base & "/" & server.prefix & "/assets/app.js")
+    doAssert asset.getStatus == 200
+    doAssert asset.header("content-type").contains("text/javascript")
+    doAssert asset.header("content-encoding") == "gzip"
+    doAssert uncompress(asset.body) == "console.log(1)"
+  finally:
+    server.stop()
+
+main()
+""")
+
+      let cmd = "nim c -r --hints:off --mm:orc --threads:on --path:src --path:" &
+        quoteShell(dir) & " -d:viewyGeneratedSchemeAssets " & quoteShell(sample)
+      let (output, exitCode) = execCmdEx(cmd)
+      if exitCode != 0:
+        checkpoint output
+      check exitCode == 0
+    finally:
+      removeDir(dir)
+
   test "headless server enforces token and session auth":
     let server = startServedServer([
       ServedAsset(path: "/index.html", contentType: "text/html; charset=utf-8",

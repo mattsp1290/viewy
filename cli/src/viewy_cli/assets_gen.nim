@@ -1,6 +1,7 @@
 import std/[algorithm, os, strutils]
 
 import zippy
+import zippy/crc
 
 type
   AssetsGenError* = object of CatchableError
@@ -10,6 +11,7 @@ type
     contentType: string
     etag: string
     staticRel: string
+    contentHash: uint64
 
 proc assetsGenError(message: string): ref AssetsGenError =
   newException(AssetsGenError, message)
@@ -51,14 +53,41 @@ proc generatedGzipName(index: int; path: string): string =
   let ext = splitFile(path).ext
   "asset_" & $index & ext & ".gz"
 
-proc fnv1a(value: string): uint64 =
-  result = 14695981039346656037'u64
-  for ch in value:
-    result = result xor uint64(ord(ch))
-    result = result * 1099511628211'u64
+const
+  fnvOffset = 14695981039346656037'u64
+  fnvPrime = 1099511628211'u64
 
-proc etagFor(path, content: string): string =
-  "\"viewy-" & toHex(fnv1a(path & "\0" & content)) & "\""
+proc updateFnv1a(hash: var uint64; value: string) =
+  for ch in value:
+    hash = hash xor uint64(ord(ch))
+    hash = hash * fnvPrime
+
+proc fnv1a(value: string): uint64 =
+  result = fnvOffset
+  result.updateFnv1a(value)
+
+proc etagForBuild(entries: openArray[AssetEntry]): string =
+  var hash = fnvOffset
+  for entry in entries:
+    hash.updateFnv1a(entry.path)
+    hash.updateFnv1a("\0")
+    hash.updateFnv1a(toHex(entry.contentHash))
+    hash.updateFnv1a("\0")
+  "\"viewy-" & toHex(hash) & "\""
+
+proc addUint32Le(output: var string; value: uint32) =
+  output.add(((value shr 0) and 255).char)
+  output.add(((value shr 8) and 255).char)
+  output.add(((value shr 16) and 255).char)
+  output.add(((value shr 24) and 255).char)
+
+proc gzipDeterministic(content: string): string =
+  ## zippy's dfGzip writer intentionally randomizes the filename header.
+  ## Emit a minimal, stable gzip wrapper around deterministic deflate bytes.
+  result = "\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff"
+  result.add compress(content, dataFormat = dfDeflate)
+  result.addUint32Le(crc32(content))
+  result.addUint32Le(uint32(content.len))
 
 proc generateMultiFileAssets(distDir, outPath: string; includeScheme: bool) =
   let distIndex = distDir / "index.html"
@@ -84,16 +113,19 @@ proc generateMultiFileAssets(distDir, outPath: string; includeScheme: bool) =
     let servedPath = "/" & rel
     let gzipPath = gzipDir / generatedGzipName(index, rel)
     let content = readFile(file)
-    writeFile(gzipPath, compress(content))
+    writeFile(gzipPath, gzipDeterministic(content))
     let staticRel = relativePath(gzipPath, parentDir(outPath)).nimImportPath
     entries.add AssetEntry(
       path: servedPath,
       contentType: contentType(file),
-      etag: etagFor(servedPath, content),
       staticRel: staticRel,
+      contentHash: fnv1a(content),
     )
 
   entries.sort(proc(a, b: AssetEntry): int = cmp(a.path, b.path))
+  let buildEtag = etagForBuild(entries)
+  for entry in entries.mitems:
+    entry.etag = buildEtag
   var servedEntries: seq[string]
   for entry in entries:
     servedEntries.add "  (path: " & nimStringLiteral(entry.path) &
