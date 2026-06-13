@@ -4,6 +4,7 @@
 ## future backend, not a flag of this one.
 
 import ./gtk_ffi
+export gtk_ffi
 
 when defined(linux) and not defined(nimcheck):
   import std/strutils
@@ -20,8 +21,8 @@ when defined(linux) and not defined(nimcheck):
 
   proc versionAtLeast(package: string; major,
       minor: int): bool {.compileTime.} =
-    gorge("pkg-config --atleast-version=" & $major & "." & $minor & " " &
-        package).strip().len == 0
+    gorgeEx("pkg-config --atleast-version=" & $major & "." & $minor & " " &
+        package).exitCode == 0
 
   const webkit = pkgConfig("gtk+-3.0 webkit2gtk-4.1")
   when not webkit.ok:
@@ -33,12 +34,27 @@ when defined(linux) and not defined(nimcheck):
   {.passL: webkit.libs.}
 
 type
+  GAsyncReadyCallback* = proc(sourceObject: pointer; result: ptr GAsyncResult;
+      userData: pointer) {.cdecl, gcsafe.}
+  GAsyncResult* {.importc: "GAsyncResult", header: "gio/gio.h",
+      incompleteStruct.} = object
+  GBytes* {.importc: "GBytes", header: "glib.h", incompleteStruct.} = object
+  GCancellable* {.importc: "GCancellable", header: "gio/gio.h",
+      incompleteStruct.} = object
+  GInputStream* {.importc: "GInputStream", header: "gio/gio.h",
+      incompleteStruct.} = object
   JSCContext* {.importc: "JSCContext", header: "jsc/jsc.h",
       incompleteStruct.} = object
   JSCValue* {.importc: "JSCValue", header: "jsc/jsc.h",
       incompleteStruct.} = object
+  GSize* {.importc: "gsize", header: "glib.h".} = culong
+  GSSize* {.importc: "gssize", header: "glib.h".} = clong
   SoupMessageHeaders* {.importc: "SoupMessageHeaders", header: "libsoup/soup.h",
       incompleteStruct.} = object
+  SoupMessageHeadersType* {.size: sizeof(cint).} = enum
+    soupMessageHeadersRequest = 0
+    soupMessageHeadersResponse = 1
+    soupMessageHeadersMultipart = 2
   WebKitJavascriptResult* {.importc: "WebKitJavascriptResult",
       header: "webkit2/webkit2.h", incompleteStruct.} = object
   WebKitLoadEvent* {.size: sizeof(cint).} = enum
@@ -52,6 +68,8 @@ type
       header: "webkit2/webkit2.h", incompleteStruct.} = object
   WebKitURISchemeRequestCallback* = proc(request: ptr WebKitURISchemeRequest;
       data: pointer) {.cdecl, gcsafe.}
+  WebKitURISchemeResponse* {.importc: "WebKitURISchemeResponse",
+      header: "webkit2/webkit2.h", incompleteStruct.} = object
   WebKitUserContentInjectedFrames* {.size: sizeof(cint).} = enum
     webkitUserContentInjectAllFrames = 0
     webkitUserContentInjectTopFrame = 1
@@ -69,13 +87,44 @@ type
   WebKitWebViewBase* {.importc: "WebKitWebViewBase",
       header: "webkit2/webkit2.h", incompleteStruct.} = object
 
+proc gBytesNew*(data: pointer; size: GSize): ptr GBytes
+  {.importc: "g_bytes_new", header: "glib.h", cdecl.}
+
+proc gBytesUnref*(bytes: ptr GBytes)
+  {.importc: "g_bytes_unref", header: "glib.h", cdecl.}
+
+proc gInputStreamClose*(stream: ptr GInputStream; cancellable: ptr GCancellable;
+    error: ptr ptr GError): GBoolean
+  {.importc: "g_input_stream_close", header: "gio/gio.h", cdecl.}
+
+proc gInputStreamRead*(stream: ptr GInputStream; buffer: pointer; count: GSize;
+    cancellable: ptr GCancellable; error: ptr ptr GError): GSSize
+  {.importc: "g_input_stream_read", header: "gio/gio.h", cdecl.}
+
+proc gMemoryInputStreamNewFromBytes*(bytes: ptr GBytes): ptr GInputStream
+  {.importc: "g_memory_input_stream_new_from_bytes", header: "gio/gio.h", cdecl.}
+
+proc gMemoryInputStreamNewFromData*(data: pointer; len: GSSize;
+    destroy: GDestroyNotify): ptr GInputStream
+  {.importc: "g_memory_input_stream_new_from_data", header: "gio/gio.h", cdecl.}
+
 proc jscValueToString*(value: ptr JSCValue): cstring
   {.importc: "jsc_value_to_string", header: "jsc/jsc.h", cdecl.}
+
+proc soupMessageHeadersAppend*(headers: ptr SoupMessageHeaders; name,
+    value: cstring)
+  {.importc: "soup_message_headers_append", header: "libsoup/soup.h", cdecl.}
 
 proc soupMessageHeadersForeach*(headers: ptr SoupMessageHeaders; callback: proc(
     name, value: cstring; userData: pointer) {.cdecl, gcsafe.};
     userData: pointer)
   {.importc: "soup_message_headers_foreach", header: "libsoup/soup.h", cdecl.}
+
+proc soupMessageHeadersFree*(headers: ptr SoupMessageHeaders)
+  {.importc: "soup_message_headers_free", header: "libsoup/soup.h", cdecl.}
+
+proc soupMessageHeadersNew*(kind: SoupMessageHeadersType): ptr SoupMessageHeaders
+  {.importc: "soup_message_headers_new", header: "libsoup/soup.h", cdecl.}
 
 proc webkitJavascriptResultGetGlobalContext*(
     jsResult: ptr WebKitJavascriptResult): ptr JSCContext
@@ -110,7 +159,7 @@ proc webkitSettingsSetEnableJavascript*(settings: ptr WebKitSettings;
       header: "webkit2/webkit2.h", cdecl.}
 
 proc webkitUriSchemeRequestFinish*(request: ptr WebKitURISchemeRequest;
-    stream: pointer; streamLength: int64; mimeType: cstring)
+    stream: ptr GInputStream; streamLength: int64; mimeType: cstring)
   {.importc: "webkit_uri_scheme_request_finish", header: "webkit2/webkit2.h",
       cdecl.}
 
@@ -120,7 +169,7 @@ proc webkitUriSchemeRequestFinishError*(request: ptr WebKitURISchemeRequest;
       header: "webkit2/webkit2.h", cdecl.}
 
 proc webkitUriSchemeRequestGetHttpBody*(
-    request: ptr WebKitURISchemeRequest): pointer
+    request: ptr WebKitURISchemeRequest): ptr GInputStream
   {.importc: "webkit_uri_scheme_request_get_http_body",
       header: "webkit2/webkit2.h", cdecl.}
 
@@ -146,6 +195,31 @@ proc webkitUriSchemeRequestGetScheme*(
 proc webkitUriSchemeRequestGetUri*(request: ptr WebKitURISchemeRequest): cstring
   {.importc: "webkit_uri_scheme_request_get_uri", header: "webkit2/webkit2.h",
       cdecl.}
+
+proc webkitUriSchemeRequestFinishWithResponse*(
+    request: ptr WebKitURISchemeRequest; response: ptr WebKitURISchemeResponse)
+  {.importc: "webkit_uri_scheme_request_finish_with_response",
+      header: "webkit2/webkit2.h", cdecl.}
+
+proc webkitUriSchemeResponseNew*(stream: ptr GInputStream;
+    streamLength: int64): ptr WebKitURISchemeResponse
+  {.importc: "webkit_uri_scheme_response_new", header: "webkit2/webkit2.h",
+      cdecl.}
+
+proc webkitUriSchemeResponseSetContentType*(
+    response: ptr WebKitURISchemeResponse; contentType: cstring)
+  {.importc: "webkit_uri_scheme_response_set_content_type",
+      header: "webkit2/webkit2.h", cdecl.}
+
+proc webkitUriSchemeResponseSetHttpHeaders*(
+    response: ptr WebKitURISchemeResponse; headers: ptr SoupMessageHeaders)
+  {.importc: "webkit_uri_scheme_response_set_http_headers",
+      header: "webkit2/webkit2.h", cdecl.}
+
+proc webkitUriSchemeResponseSetStatus*(response: ptr WebKitURISchemeResponse;
+    statusCode: cuint; reasonPhrase: cstring)
+  {.importc: "webkit_uri_scheme_response_set_status",
+      header: "webkit2/webkit2.h", cdecl.}
 
 proc webkitUserContentManagerAddScript*(manager: ptr WebKitUserContentManager;
     script: ptr WebKitUserScript)
@@ -188,8 +262,14 @@ proc webkitWebContextRegisterUriScheme*(context: ptr WebKitWebContext;
 
 proc webkitWebViewEvaluateJavascript*(webView: ptr WebKitWebView;
     script: cstring; length: int64; worldName, sourceUri: cstring;
-    cancellable: pointer; callback: pointer; userData: pointer)
+    cancellable: ptr GCancellable; callback: GAsyncReadyCallback;
+        userData: pointer)
   {.importc: "webkit_web_view_evaluate_javascript",
+      header: "webkit2/webkit2.h", cdecl.}
+
+proc webkitWebViewEvaluateJavascriptFinish*(webView: ptr WebKitWebView;
+    result: ptr GAsyncResult; error: ptr ptr GError): ptr JSCValue
+  {.importc: "webkit_web_view_evaluate_javascript_finish",
       header: "webkit2/webkit2.h", cdecl.}
 
 proc webkitWebViewGetSettings*(webView: ptr WebKitWebView): ptr WebKitSettings
