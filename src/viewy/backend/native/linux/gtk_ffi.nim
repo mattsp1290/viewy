@@ -3,6 +3,8 @@
 ## Keep this file to declarations only. The backend owns GTK object lifetime and
 ## thread handoff; this module only exposes the C ABI symbols it needs.
 
+{.passC: "-DVIEWY_APPINDICATOR_HEADER='\"libayatana-appindicator/app-indicator.h\"'".}
+
 when defined(linux) and not defined(nimcheck):
   import std/strutils
 
@@ -20,10 +22,31 @@ when defined(linux) and not defined(nimcheck):
   when not gtk3.ok:
     {.error: "install libgtk-3-dev and pkg-config for viewy native Linux backend".}
 
+  const appIndicator = block:
+    let ayatana = pkgConfig("ayatana-appindicator3-0.1")
+    if ayatana.ok:
+      ayatana
+    else:
+      pkgConfig("appindicator3-0.1")
+  const appIndicatorHeader = block:
+    let ayatana = pkgConfig("ayatana-appindicator3-0.1")
+    if ayatana.ok:
+      "libayatana-appindicator/app-indicator.h"
+    else:
+      "libappindicator/app-indicator.h"
+
   {.passC: gtk3.cflags.}
   {.passL: gtk3.libs.}
+  when appIndicator.ok:
+    {.passC: appIndicator.cflags & " -DVIEWY_HAS_APPINDICATOR=1" &
+        " -DVIEWY_APPINDICATOR_HEADER='\"" & appIndicatorHeader & "\"'".}
+    {.passL: appIndicator.libs.}
 
 type
+  GConnectFlags* {.size: sizeof(cint).} = enum
+    gConnectDefault = 0
+    gConnectAfter = 1
+    gConnectSwapped = 2
   GBoolean* = cint
   GChar* {.importc: "gchar", header: "glib.h".} = char
   GConstPointer* {.importc: "gconstpointer", header: "glib.h".} = pointer
@@ -33,13 +56,33 @@ type
       incompleteStruct.} = object
   GPointer* {.importc: "gpointer", header: "glib.h".} = pointer
   GQuark* {.importc: "GQuark", header: "glib.h".} = cuint
-  GSignalCallback* = proc(instance: pointer; data: pointer) {.cdecl, gcsafe.}
   GSourceFunc* = proc(data: pointer): GBoolean {.cdecl, gcsafe.}
+  GSList* {.importc: "GSList", header: "glib.h", incompleteStruct.} = object
   GType* {.importc: "GType", header: "glib-object.h".} = culong
   GValue* {.importc: "GValue", header: "glib-object.h",
       incompleteStruct.} = object
   GVariant* {.importc: "GVariant", header: "glib.h", incompleteStruct.} = object
+  GdkEvent* {.importc: "GdkEvent", header: "gdk/gdk.h",
+      incompleteStruct.} = object
+  GdkEventConfigure* {.importc: "GdkEventConfigure", header: "gdk/gdk.h",
+      bycopy.} = object
+    eventType* {.importc: "type".}: cint
+    window* {.importc: "window".}: pointer
+    sendEvent* {.importc: "send_event".}: int8
+    x*: cint
+    y*: cint
+    width*: cint
+    height*: cint
   GtkAccelGroup* {.importc: "GtkAccelGroup", header: "gtk/gtk.h",
+      incompleteStruct.} = object
+  GtkAccelFlags* {.size: sizeof(cint).} = enum
+    gtkAccelVisible = 1
+    gtkAccelLocked = 2
+    gtkAccelMask = 7
+  GtkAccelKey* {.importc: "GtkAccelKey", header: "gtk/gtk.h",
+      incompleteStruct.} = object
+  GtkApplicationIndicator* {.importc: "AppIndicator",
+      header: "VIEWY_APPINDICATOR_HEADER",
       incompleteStruct.} = object
   GtkApplication* {.importc: "GtkApplication", header: "gtk/gtk.h",
       incompleteStruct.} = object
@@ -78,6 +121,28 @@ type
   GtkWindowType* {.size: sizeof(cint).} = enum
     gtkWindowToplevel = 0
     gtkWindowPopup = 1
+  AppIndicatorCategory* {.size: sizeof(cint).} = enum
+    appIndicatorCategoryApplicationStatus = 0
+    appIndicatorCategoryCommunications = 1
+    appIndicatorCategorySystemServices = 2
+    appIndicatorCategoryHardware = 3
+    appIndicatorCategoryOther = 4
+  AppIndicatorStatus* {.size: sizeof(cint).} = enum
+    appIndicatorStatusPassive = 0
+    appIndicatorStatusActive = 1
+    appIndicatorStatusAttention = 2
+  GtkDeleteEventCallback* = proc(widget: ptr GtkWidget; event: ptr GdkEvent;
+      data: pointer): GBoolean {.cdecl, gcsafe.}
+  GtkFocusEventCallback* = proc(widget: ptr GtkWidget; event: ptr GdkEvent;
+      data: pointer): GBoolean {.cdecl, gcsafe.}
+  GtkConfigureEventCallback* = proc(widget: ptr GtkWidget;
+      event: ptr GdkEventConfigure; data: pointer): GBoolean {.cdecl, gcsafe.}
+  GtkMenuItemCallback* = proc(menuItem: ptr GtkMenuItem; data: pointer)
+      {.cdecl, gcsafe.}
+  GtkStatusIconActivateCallback* = proc(statusIcon: ptr GtkStatusIcon;
+      data: pointer) {.cdecl, gcsafe.}
+  GtkStatusIconPopupMenuCallback* = proc(statusIcon: ptr GtkStatusIcon;
+      button, activateTime: cuint; data: pointer) {.cdecl, gcsafe.}
 
 const
   gFalse* = GBoolean(0)
@@ -91,7 +156,7 @@ proc gObjectUnref*(obj: pointer)
 
 proc gSignalConnectData*(instance: pointer; detailedSignal: cstring;
     callback: pointer; data: pointer; destroyData: GDestroyNotify;
-    connectFlags: cint): culong
+    connectFlags: GConnectFlags): culong
   {.importc: "g_signal_connect_data", header: "glib-object.h", cdecl.}
 
 proc gTimeoutAdd*(interval: cuint; function: GSourceFunc; data: pointer): cuint
@@ -99,6 +164,10 @@ proc gTimeoutAdd*(interval: cuint; function: GSourceFunc; data: pointer): cuint
 
 proc gtkAccelGroupNew*(): ptr GtkAccelGroup
   {.importc: "gtk_accel_group_new", header: "gtk/gtk.h", cdecl.}
+
+proc gtkAcceleratorParse*(accelerator: cstring; acceleratorKey: ptr cuint;
+    acceleratorMods: ptr cint)
+  {.importc: "gtk_accelerator_parse", header: "gtk/gtk.h", cdecl.}
 
 proc gtkBoxNew*(orientation: GtkOrientation; spacing: cint): ptr GtkWidget
   {.importc: "gtk_box_new", header: "gtk/gtk.h", cdecl.}
@@ -156,12 +225,25 @@ proc gtkMenuNew*(): ptr GtkWidget
 proc gtkMenuPopupAtPointer*(menu: ptr GtkMenu; triggerEvent: pointer)
   {.importc: "gtk_menu_popup_at_pointer", header: "gtk/gtk.h", cdecl.}
 
+proc gtkMenuPopup*(menu: ptr GtkMenu; parentMenuShell: ptr GtkWidget;
+    parentMenuItem: ptr GtkWidget; menuPositionFunc: pointer; data: pointer;
+    button, activateTime: cuint)
+  {.importc: "gtk_menu_popup", header: "gtk/gtk.h", cdecl.}
+
 proc gtkMenuShellAppend*(menuShell: pointer; child: ptr GtkWidget)
   {.importc: "gtk_menu_shell_append", header: "gtk/gtk.h", cdecl.}
+
+proc gtkRadioMenuItemGetGroup*(radioMenuItem: ptr GtkRadioMenuItem): ptr GSList
+  {.importc: "gtk_radio_menu_item_get_group", header: "gtk/gtk.h", cdecl.}
 
 proc gtkRadioMenuItemNewWithLabel*(group: pointer;
     label: cstring): ptr GtkWidget
   {.importc: "gtk_radio_menu_item_new_with_label", header: "gtk/gtk.h", cdecl.}
+
+proc gtkRadioMenuItemNewWithLabelFromWidget*(
+    group: ptr GtkRadioMenuItem; label: cstring): ptr GtkWidget
+  {.importc: "gtk_radio_menu_item_new_with_label_from_widget",
+      header: "gtk/gtk.h", cdecl.}
 
 proc gtkSeparatorMenuItemNew*(): ptr GtkWidget
   {.importc: "gtk_separator_menu_item_new", header: "gtk/gtk.h", cdecl.}
@@ -177,6 +259,15 @@ proc gtkStatusIconSetTooltipText*(statusIcon: ptr GtkStatusIcon; text: cstring)
 
 proc gtkStatusIconSetVisible*(statusIcon: ptr GtkStatusIcon; visible: GBoolean)
   {.importc: "gtk_status_icon_set_visible", header: "gtk/gtk.h", cdecl.}
+
+proc gtkStatusIconPositionMenu*(menu: ptr GtkMenu; x, y: ptr cint;
+    pushIn: ptr GBoolean; userData: pointer)
+  {.importc: "gtk_status_icon_position_menu", header: "gtk/gtk.h", cdecl.}
+
+proc gtkWidgetAddAccelerator*(widget: ptr GtkWidget; accelSignal: cstring;
+    accelGroup: ptr GtkAccelGroup; accelKey: cuint; accelMods: cint;
+    accelFlags: GtkAccelFlags)
+  {.importc: "gtk_widget_add_accelerator", header: "gtk/gtk.h", cdecl.}
 
 proc gtkWidgetDestroy*(widget: ptr GtkWidget)
   {.importc: "gtk_widget_destroy", header: "gtk/gtk.h", cdecl.}
@@ -220,3 +311,31 @@ proc gtkWindowSetResizable*(window: ptr GtkWindow; resizable: GBoolean)
 
 proc gtkWindowSetTitle*(window: ptr GtkWindow; title: cstring)
   {.importc: "gtk_window_set_title", header: "gtk/gtk.h", cdecl.}
+
+proc gtkWindowGetSize*(window: ptr GtkWindow; width, height: ptr cint)
+  {.importc: "gtk_window_get_size", header: "gtk/gtk.h", cdecl.}
+
+when defined(VIEWY_HAS_APPINDICATOR) or defined(nimcheck):
+  proc appIndicatorNew*(id, iconName: cstring;
+      category: AppIndicatorCategory): ptr GtkApplicationIndicator
+    {.importc: "app_indicator_new",
+        header: "VIEWY_APPINDICATOR_HEADER", cdecl.}
+
+  proc appIndicatorSetIconFull*(self: ptr GtkApplicationIndicator;
+      iconName, iconDesc: cstring)
+    {.importc: "app_indicator_set_icon_full",
+        header: "VIEWY_APPINDICATOR_HEADER", cdecl.}
+
+  proc appIndicatorSetMenu*(self: ptr GtkApplicationIndicator;
+      menu: ptr GtkMenu)
+    {.importc: "app_indicator_set_menu",
+        header: "VIEWY_APPINDICATOR_HEADER", cdecl.}
+
+  proc appIndicatorSetStatus*(self: ptr GtkApplicationIndicator;
+      status: AppIndicatorStatus)
+    {.importc: "app_indicator_set_status",
+        header: "VIEWY_APPINDICATOR_HEADER", cdecl.}
+
+  proc appIndicatorSetTitle*(self: ptr GtkApplicationIndicator; title: cstring)
+    {.importc: "app_indicator_set_title",
+        header: "VIEWY_APPINDICATOR_HEADER", cdecl.}
