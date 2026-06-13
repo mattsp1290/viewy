@@ -1,6 +1,6 @@
 import std/[os, strutils]
 
-const SupportedTemplates* = ["vanilla", "react"]
+const SupportedTemplates* = ["vanilla", "react", "svelte"]
 
 type
   InitError* = object of CatchableError
@@ -33,6 +33,7 @@ proc stampFile(path, appName: string) =
   text = text.replace("viewy app", title)
   text = text.replace("viewy-vanilla-template", appName)
   text = text.replace("viewy-react-template", appName)
+  text = text.replace("viewy-svelte-template", appName)
   text = text.replace("viewy_app.nimble", pkg & ".nimble")
   text = text.replace("A viewy desktop app", "A viewy desktop app: " & title)
   writeFile(path, text)

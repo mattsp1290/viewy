@@ -57,6 +57,34 @@ suite "viewy init":
     finally:
       removeDir(dir)
 
+  test "copies and stamps svelte template":
+    let dir = createTempDir("viewy-init-svelte", "")
+    try:
+      let output = initProject("svelte-app", templateName = "svelte",
+        destRoot = dir,
+        templateRoot = templateRoot)
+      let appDir = dir / "svelte-app"
+      check output.contains("Created svelte-app")
+      check output.contains("viewy build --release")
+      check fileExists(appDir / "viewy.json")
+      check fileExists(appDir / ".gitignore")
+      check fileExists(appDir / "svelte_app.nimble")
+      check fileExists(appDir / "package.json")
+      check fileExists(appDir / "package-lock.json")
+      check fileExists(appDir / "src" / "main.nim")
+      check fileExists(appDir / "src" / "main.ts")
+      check fileExists(appDir / "src" / "App.svelte")
+      check fileExists(appDir / "src" / "assets" / "viewy.svg")
+      check not dirExists(appDir / "dist")
+      check not dirExists(appDir / "node_modules")
+      check readFile(appDir / "viewy.json").contains("\"name\": \"svelte-app\"")
+      check readFile(appDir / "viewy.json").contains("\"title\": \"Svelte app\"")
+      check readFile(appDir / "package.json").contains("\"name\": \"svelte-app\"")
+      check readFile(appDir / "package.json").contains("\"svelte\"")
+      check readFile(appDir / "svelte_app.nimble").contains("A viewy desktop app: Svelte app")
+    finally:
+      removeDir(dir)
+
   test "refuses non-empty destination":
     let dir = createTempDir("viewy-init-existing", "")
     try:
@@ -69,7 +97,7 @@ suite "viewy init":
 
   test "rejects unavailable templates":
     expect InitError:
-      discard initProject("demo", templateName = "svelte",
+      discard initProject("demo", templateName = "solid",
           templateRoot = templateRoot)
 
   test "rejects invalid project names":
