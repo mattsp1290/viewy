@@ -91,6 +91,10 @@ jobs:
         if: runner.os == 'Linux'
         run: nim c --hints:off --mm:orc --threads:on -r tests/native/test_linux_gtk_ffi.nim
 
+      - name: Check native Linux WebKitGTK FFI
+        if: runner.os == 'Linux'
+        run: nim c --hints:off --mm:orc --threads:on -r tests/native/test_linux_webkitgtk_ffi.nim
+
       - name: Create build directory
         run: python -c "import os; os.makedirs('build', exist_ok=True)"
 
