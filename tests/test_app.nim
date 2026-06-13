@@ -126,6 +126,13 @@ let fakeBackend = Backend(
   resolve: fakeResolve,
 )
 
+let compileOnlyAssetHandler =
+  proc(request: AssetRequest): AssetResponse {.gcsafe.} =
+    doAssert request.path.len >= 0
+    assetResponse(404, "Not Found", "text/plain; charset=utf-8", "not found")
+
+discard newApp(assetHandler = compileOnlyAssetHandler, backend = fakeBackend)
+
 proc resetState() =
   createdDebug = false
   destroyed = false
