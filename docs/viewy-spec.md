@@ -166,7 +166,7 @@ Separate nimble package `viewy_cli` (or same repo, `bin = @["viewy"]`). Dependen
   "name": "myapp",
   "title": "My App",
   "width": 1024, "height": 768, "resizable": true,
-  "assets": "single",          // "single" | "served"
+  "assets": "scheme",          // "scheme" | "single" | "served"
   "devUrl": "http://localhost:5173",
   "frontendDir": "frontend",
   "nimMain": "src/main.nim"

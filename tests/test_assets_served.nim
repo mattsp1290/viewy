@@ -60,6 +60,40 @@ doAssert servedAssets[0].gzipBytes == "gz-html"
     finally:
       removeDir(dir)
 
+  test "generated scheme assets select scheme default":
+    let dir = createTempDir("viewy_assets_scheme_generated_", "")
+    try:
+      createDir(dir / "served")
+      writeFile(dir / "served" / "index.html.gz", "gz-html")
+      writeFile(dir / "viewy_assets.nim", """
+const viewyServedDocumentPath* = "/index.html"
+const viewyServedAssets* = [
+  (path: "/index.html", contentType: "text/html; charset=utf-8",
+    gzipBytes: staticRead("served/index.html.gz")),
+]
+""")
+
+      let sample = dir / "check_generated_scheme_assets.nim"
+      writeFile(sample, """
+import viewy/assets
+import viewy/assets_served
+
+doAssert defaultAssetMode == assetsScheme
+let servedAssets = generatedServedAssets()
+doAssert generatedServedDocumentPath() == "/index.html"
+doAssert servedAssets.len == 1
+doAssert servedAssets[0].path == "/index.html"
+""")
+
+      let cmd = "nim c -r --hints:off --mm:orc --threads:on --path:src --path:" &
+        quoteShell(dir) & " -d:viewyGeneratedSchemeAssets " & quoteShell(sample)
+      let (output, exitCode) = execCmdEx(cmd)
+      if exitCode != 0:
+        checkpoint output
+      check exitCode == 0
+    finally:
+      removeDir(dir)
+
   test "headless server enforces token and session auth":
     let server = startServedServer([
       ServedAsset(path: "/index.html", contentType: "text/html; charset=utf-8",

@@ -152,6 +152,50 @@ suite "viewy build":
     finally:
       removeDir(dir)
 
+  test "build supports scheme asset mode":
+    let dir = createTempDir("viewy-build-scheme", "")
+    var calls: seq[tuple[command, workingDir: string]]
+    try:
+      createDir(dir / "src")
+      createDir(dir / "frontend" / "dist" / "assets")
+      writeFile(dir / "src" / "main.nim", "echo \"hello\"\n")
+      writeFile(dir / "frontend" / "dist" / "index.html", "<!doctype html>")
+      writeFile(dir / "frontend" / "dist" / "assets" / "app.js", "console.log(1)")
+
+      let cfg = ViewyConfig(
+        name: "demo",
+        title: "Demo",
+        width: 800,
+        height: 600,
+        resizable: true,
+        assets: amScheme,
+        devUrl: "http://127.0.0.1:5173",
+        frontendDir: "frontend",
+        nimMain: "src/main.nim"
+      )
+
+      proc fakeExec(command, workingDir: string): tuple[output: string;
+          exitCode: int] =
+        calls.add (command, workingDir)
+        if command.startsWith("nim c "):
+          createDir(dir / "build")
+          when defined(windows):
+            writeFile(dir / "build" / "demo.exe", "binary")
+          else:
+            writeFile(dir / "build" / "demo", "binary")
+        ("", 0)
+
+      let output = buildApp(cfg, projectDir = dir, exec = fakeExec)
+
+      check output.contains("Built binary:")
+      check calls[1].command.contains("-d:viewyGeneratedSchemeAssets")
+      check not calls[1].command.contains("-d:viewyGeneratedServedAssets")
+      check not calls[1].command.contains("-d:viewyGeneratedAssets")
+      check fileExists(dir / "src" / "viewy_assets.nim")
+      check dirExists(dir / "src" / "viewy_assets_served")
+    finally:
+      removeDir(dir)
+
   test "reports invalid explicit viewy library source before compile":
     let dir = createTempDir("viewy-build-missing-lib", "")
     let old = getEnv("VIEWY_LIB_SRC")
