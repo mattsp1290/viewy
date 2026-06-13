@@ -84,7 +84,7 @@ Everything above maps 1:1 onto the `webview_*` C API (`webview_create`, `webview
   - **Linux:** `pkg-config --cflags --libs gtk+-3.0 webkit2gtk-4.1` (fallback probe for `webkit2gtk-4.0`; optionally support `gtk4 webkitgtk-6.0` behind `-d:viewyGtk4`).
   - **macOS:** `-framework WebKit -framework Cocoa`, compile as Objective-C++.
   - **Windows:** MinGW-w64 or VCC; use webview's built-in WebView2 loader (`WEBVIEW_MSWEBVIEW2_BUILTIN_IMPL=1`) so no `WebView2Loader.dll` ships with the binary. Link `advapi32 ole32 shell32 shlwapi user32 version`. Requires C++14.
-- All flags live in one module (`backend/wv/build.nim`) using `when defined(...)` + `gorge("pkg-config ...")` at compile time on Linux.
+- All flags live in one module (`backend/lite/build.nim`) using `when defined(...)` + `gorge("pkg-config ...")` at compile time on Linux.
 
 ### 4.3 High-level user API (`app.nim`)
 

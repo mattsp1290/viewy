@@ -57,7 +57,7 @@ import std/os
 import viewy
 
 when defined(viewyDev):
-  import viewy/backend/wv/backend
+  import viewy/backend/lite/backend
 
 const revision = "$1"
 
