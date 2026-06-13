@@ -39,4 +39,4 @@ Runs against a real `newBackend()` and a real display. These tests are gated by
 ## Tier 3: Manual QA
 
 Manual native-backend QA is tracked outside the automated suite. The named owner
-is `docs/qa-checklist.md` once that checklist lands.
+is [docs/qa-checklist.md](../docs/qa-checklist.md).
