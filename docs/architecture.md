@@ -175,8 +175,9 @@ That file is a local translation unit that includes the pinned upstream
 `vendor/webview/webview.h` implementation/API. Platform flags live in
 `build.nim`:
 
-- Linux probes `gtk+-3.0` with `webkit2gtk-4.1`, falling back to
-  `webkit2gtk-4.0`; `-d:viewyGtk4` selects `gtk4 webkitgtk-6.0`.
+- The lite Linux backend probes `gtk+-3.0` with `webkit2gtk-4.1`, falling back to
+  `webkit2gtk-4.0`; `-d:viewyGtk4` is a lite-only opt-in for `gtk4 webkitgtk-6.0`.
+  The native Linux backend is GTK3-only and requires `webkit2gtk-4.1`.
 - macOS links WebKit and Cocoa and compiles the vendored source as Objective-C++.
 - Windows supports MinGW and VCC, uses the built-in WebView2 loader, and links
   the required system libraries.

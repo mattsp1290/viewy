@@ -81,7 +81,7 @@ Everything above maps 1:1 onto the `webview_*` C API (`webview_create`, `webview
 
 - **Hand-write the FFI** (`ffi.nim`). The webview C API is tiny; do not pull in futhark/c2nim as dependencies. Do not depend on the existing `oskca/webview` or `drkameleon/nim-webview` packages — vendor a **pinned release** of webview/webview instead (it has stable tagged releases now; pin in a `vendor/` dir or fetch at build time with checksum).
 - Compile the amalgamated `webview.cc`/header via `{.compile.}` pragma with per-platform flags:
-  - **Linux:** `pkg-config --cflags --libs gtk+-3.0 webkit2gtk-4.1` (fallback probe for `webkit2gtk-4.0`; optionally support `gtk4 webkitgtk-6.0` behind `-d:viewyGtk4`).
+  - **Linux:** the lite backend uses `pkg-config --cflags --libs gtk+-3.0 webkit2gtk-4.1` with a fallback probe for `webkit2gtk-4.0`; `gtk4 webkitgtk-6.0` is a lite-only opt-in behind `-d:viewyGtk4`. The native Linux backend is GTK3-only and requires `webkit2gtk-4.1`.
   - **macOS:** `-framework WebKit -framework Cocoa`, compile as Objective-C++.
   - **Windows:** MinGW-w64 or VCC; use webview's built-in WebView2 loader (`WEBVIEW_MSWEBVIEW2_BUILTIN_IMPL=1`) so no `WebView2Loader.dll` ships with the binary. Link `advapi32 ole32 shell32 shlwapi user32 version`. Requires C++14.
 - All flags live in one module (`backend/lite/build.nim`) using `when defined(...)` + `gorge("pkg-config ...")` at compile time on Linux.

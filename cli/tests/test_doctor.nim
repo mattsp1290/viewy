@@ -32,28 +32,32 @@ suite "viewy doctor":
     check result.ok
     check result.output.contains("OK   Nim")
     check result.output.contains("OK   Node")
+    check result.output.contains("WebKitGTK native")
     check result.output.contains("webkit2gtk-4.1")
 
-  test "passes Linux checks with gtk4 webkitgtk 6":
+  test "GTK4 webkitgtk 6 is lite-only and does not satisfy native Linux":
     let fake = baseline()
     fake.outputs["pkg-config --version"] = ("1.9.5\n", 0)
     fake.outputs["pkg-config --exists gtk4 webkitgtk-6.0"] = ("", 0)
 
     let result = runDoctor(probe(dtLinux, fake))
 
-    check result.ok
+    check not result.ok
+    check result.output.contains("FAIL WebKitGTK native")
+    check result.output.contains("OK   WebKitGTK lite GTK4")
     check result.output.contains("webkitgtk-6.0")
 
-  test "falls back to Linux webkit2gtk 4.0":
+  test "Linux webkit2gtk 4.0 is lite-only and does not satisfy native Linux":
     let fake = baseline()
     fake.outputs["pkg-config --version"] = ("1.9.5\n", 0)
-    fake.outputs["pkg-config --exists gtk4 webkitgtk-6.0"] = ("", 1)
     fake.outputs["pkg-config --exists gtk+-3.0 webkit2gtk-4.1"] = ("", 1)
     fake.outputs["pkg-config --exists gtk+-3.0 webkit2gtk-4.0"] = ("", 0)
 
     let result = runDoctor(probe(dtLinux, fake))
 
-    check result.ok
+    check not result.ok
+    check result.output.contains("FAIL WebKitGTK native")
+    check result.output.contains("OK   WebKitGTK lite GTK3 fallback")
     check result.output.contains("webkit2gtk-4.0")
 
   test "fails with actionable Node version hint":

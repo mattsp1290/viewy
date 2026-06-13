@@ -7,6 +7,8 @@ when selectedBackend == "lite":
   export backend.newBackend
 elif selectedBackend == "native":
   when defined(linux):
+    when defined(viewyGtk4):
+      {.error: "-d:viewyGtk4 is only supported with -d:viewyBackend=lite; native Linux uses GTK3 + webkit2gtk-4.1".}
     import viewy/backend/native/linux/backend
     export backend.newBackend
   else:

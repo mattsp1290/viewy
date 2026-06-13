@@ -38,6 +38,14 @@ doAssert backend.dispatchTerminate != nil
       check exitCode != 0
       check output.contains("viewyBackend=native currently requires Linux")
 
+  test "native selection rejects gtk4 flag":
+    let (output, exitCode) = nimCheck("""
+import viewy/backend/select
+discard newBackend()
+""", "--os:linux -d:nimcheck -d:viewyBackend=native -d:viewyGtk4")
+    check exitCode != 0
+    check output.contains("-d:viewyGtk4 is only supported")
+
   test "unsupported backend value fails clearly":
     let (output, exitCode) = nimCheck("""
 import viewy/backend/select

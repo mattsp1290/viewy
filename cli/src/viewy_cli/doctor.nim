@@ -135,23 +135,24 @@ proc checkLinuxWebKit(probe: DoctorProbe): seq[CheckResult] =
       "Install pkg-config plus GTK/WebKitGTK development packages.")]
 
   result.add ok("pkg-config", "found " & pkgConfig.output.firstNonEmptyLine())
-  let webkitGtk6 = probe.exec.run("pkg-config --exists gtk4 webkitgtk-6.0")
-  if webkitGtk6.exitCode == 0:
-    result.add ok("WebKitGTK", "found gtk4 + webkitgtk-6.0 for -d:viewyGtk4")
-    return
-
   let webkit41 = probe.exec.run("pkg-config --exists gtk+-3.0 webkit2gtk-4.1")
   if webkit41.exitCode == 0:
-    result.add ok("WebKitGTK", "found gtk+-3.0 + webkit2gtk-4.1")
-    return
+    result.add ok("WebKitGTK native",
+      "found gtk+-3.0 + webkit2gtk-4.1 for native Linux")
+  else:
+    result.add fail("WebKitGTK native",
+      "gtk+-3.0 + webkit2gtk-4.1 not found",
+      "Install libgtk-3-dev with libwebkit2gtk-4.1-dev. GTK4/webkitgtk-6.0 is only for -d:viewyBackend=lite -d:viewyGtk4.")
+
+  let webkitGtk6 = probe.exec.run("pkg-config --exists gtk4 webkitgtk-6.0")
+  if webkitGtk6.exitCode == 0:
+    result.add ok("WebKitGTK lite GTK4",
+      "found gtk4 + webkitgtk-6.0 for -d:viewyBackend=lite -d:viewyGtk4")
 
   let webkit40 = probe.exec.run("pkg-config --exists gtk+-3.0 webkit2gtk-4.0")
   if webkit40.exitCode == 0:
-    result.add ok("WebKitGTK", "found gtk+-3.0 + webkit2gtk-4.0")
-  else:
-    result.add fail("WebKitGTK",
-      "gtk4 with webkitgtk-6.0, or gtk+-3.0 with webkit2gtk-4.1/4.0 not found",
-      "Install gtk4 and webkitgtk-6.0, or libgtk-3-dev with libwebkit2gtk-4.1-dev.")
+    result.add ok("WebKitGTK lite GTK3 fallback",
+      "found gtk+-3.0 + webkit2gtk-4.0 for -d:viewyBackend=lite")
 
 proc checkMacosClt(probe: DoctorProbe): CheckResult =
   let probeResult = probe.exec.run("xcode-select -p")
