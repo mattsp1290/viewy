@@ -5,12 +5,13 @@
 
 static const NSUInteger ViewyMaxSchemeBodyBytes = 10 * 1024 * 1024;
 
+@class ViewyDarwinMenuTarget;
+
 @interface ViewyDarwinAppBox : NSObject
 @property(nonatomic, assign) ViewyDarwinMenuCallback menuCallback;
 @property(nonatomic, assign) void *menuUserdata;
-@property(nonatomic, assign) ViewyDarwinMenuCallback trayCallback;
-@property(nonatomic, assign) void *trayUserdata;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSStatusItem *> *statusItems;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, ViewyDarwinMenuTarget *> *statusTargets;
 @end
 
 @implementation ViewyDarwinAppBox
@@ -19,6 +20,7 @@ static const NSUInteger ViewyMaxSchemeBodyBytes = 10 * 1024 * 1024;
   self = [super init];
   if (self) {
     _statusItems = [NSMutableDictionary dictionary];
+    _statusTargets = [NSMutableDictionary dictionary];
   }
   return self;
 }
@@ -435,6 +437,14 @@ void viewy_darwin_app_destroy(ViewyDarwinApp *app) {
     return;
   }
   @autoreleasepool {
+    for (NSString *itemId in app->box.statusItems.allKeys) {
+      NSStatusItem *item = app->box.statusItems[itemId];
+      if (item) {
+        [[NSStatusBar systemStatusBar] removeStatusItem:item];
+      }
+    }
+    [app->box.statusItems removeAllObjects];
+    [app->box.statusTargets removeAllObjects];
     app->box = nil;
     free(app);
   }
@@ -774,14 +784,22 @@ int32_t viewy_darwin_tray_create(ViewyDarwinApp *app, const char *json_options,
     item.button.title = @"";
   }
 
+  if (callback) {
+    ViewyDarwinMenuTarget *target = [ViewyDarwinMenuTarget new];
+    target.itemId = itemId;
+    target.callback = callback;
+    target.userdata = userdata;
+    item.button.target = target;
+    item.button.action = @selector(activate:);
+    app->box.statusTargets[itemId] = target;
+  }
+
   id menuItems = options[@"menu"];
   if ([menuItems isKindOfClass:[NSArray class]]) {
     NSMutableArray<ViewyDarwinMenuTarget *> *targets = [NSMutableArray array];
     item.menu = ViewyBuildMenu(menuItems, callback, userdata, targets);
   }
   app->box.statusItems[itemId] = item;
-  app->box.trayCallback = callback;
-  app->box.trayUserdata = userdata;
   return 1;
 }
 
@@ -807,11 +825,21 @@ void viewy_darwin_tray_update(ViewyDarwinApp *app, const char *tray_id,
       item.button.title = tooltip;
     }
   }
+  NSString *iconPath = ViewyDictString(options, @"iconPath");
+  NSString *templateIconPath = ViewyDictString(options, @"templateIconPath");
+  NSString *selectedIconPath = templateIconPath.length > 0 ? templateIconPath : iconPath;
+  if (selectedIconPath.length > 0) {
+    NSImage *image = [[NSImage alloc] initWithContentsOfFile:selectedIconPath];
+    image.template = templateIconPath.length > 0;
+    item.button.image = image;
+    item.button.title = @"";
+  }
   id menuItems = options[@"menu"];
   if ([menuItems isKindOfClass:[NSArray class]]) {
     NSMutableArray<ViewyDarwinMenuTarget *> *targets = [NSMutableArray array];
-    item.menu = ViewyBuildMenu(menuItems, app->box.trayCallback,
-                               app->box.trayUserdata, targets);
+    ViewyDarwinMenuTarget *target = app->box.statusTargets[itemId];
+    item.menu = ViewyBuildMenu(menuItems, target.callback, target.userdata,
+                               targets);
   }
 }
 
@@ -826,4 +854,5 @@ void viewy_darwin_tray_destroy(ViewyDarwinApp *app, const char *tray_id) {
   }
   [[NSStatusBar systemStatusBar] removeStatusItem:item];
   [app->box.statusItems removeObjectForKey:itemId];
+  [app->box.statusTargets removeObjectForKey:itemId];
 }

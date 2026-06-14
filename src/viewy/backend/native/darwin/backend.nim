@@ -29,6 +29,8 @@ type
       jsonArgs: ConstCString) {.cdecl, gcsafe.}
   DarwinEventCallback = proc(userdata: pointer; kind, width,
       height: int32) {.cdecl, gcsafe.}
+  DarwinMenuCallback = proc(userdata: pointer; id: ConstCString) {.cdecl,
+      gcsafe.}
   DarwinDispatchCallback = proc(userdata: pointer) {.cdecl, gcsafe.}
   DarwinSchemeCallback = proc(userdata, request: pointer; scheme, httpMethod,
       path, query, headersJson: ConstCString; body: ConstUint8Ptr;
@@ -46,6 +48,7 @@ type
     shared: ptr SharedState
     bindings: seq[Binding]
     schemes: seq[SchemeRegistration]
+    trays: seq[TrayRegistration]
     dispatches: seq[DispatchSlot]
     handlerRegistered: bool
     eventCallback: WindowEventCallback
@@ -58,9 +61,29 @@ type
     scheme: string
     handler: AssetHandler
 
+  TrayRegistration = ref object
+    id: string
+    cb: MenuCallback
+
   HeaderJson = object
     name: string
     value: string
+
+  MenuItemJson = object
+    id: string
+    label: string
+    accelerator: string
+    kind: string
+    enabled: bool
+    checked: bool
+    children: seq[MenuItemJson]
+
+  TrayOptionsJson = object
+    id: string
+    tooltip: string
+    iconPath: string
+    templateIconPath: string
+    menu: seq[MenuItemJson]
 
   DispatchSlot = ref object
     fn: DispatchProc
@@ -132,6 +155,14 @@ proc viewyDarwinRegisterScheme(window: ptr ViewyDarwinWindow; scheme: cstring;
 proc viewyDarwinSchemeFinish(request: pointer; status: int32; statusText,
     mimeType, headersJson: cstring; body: pointer; bodyLen: int64) {.
     importc: "viewy_darwin_scheme_finish", header: "glue.h".}
+proc viewyDarwinTrayCreate(app: ptr ViewyDarwinApp; jsonOptions: cstring;
+    callback: DarwinMenuCallback; userdata: pointer): int32 {.
+    importc: "viewy_darwin_tray_create", header: "glue.h".}
+proc viewyDarwinTrayUpdate(app: ptr ViewyDarwinApp; id,
+    jsonOptions: cstring) {.importc: "viewy_darwin_tray_update",
+    header: "glue.h".}
+proc viewyDarwinTrayDestroy(app: ptr ViewyDarwinApp; id: cstring) {.
+    importc: "viewy_darwin_tray_destroy", header: "glue.h".}
 
 const nativeHandlerName = "viewy"
 
@@ -197,6 +228,39 @@ proc headerItems(headers: openArray[Header]): seq[HeaderJson] =
   for header in headers:
     result.add HeaderJson(name: header.name, value: header.value)
 
+proc menuKindName(kind: MenuItemKind): string =
+  case kind
+  of miCommand: "command"
+  of miSeparator: "separator"
+  of miSubmenu: "submenu"
+  of miCheckbox: "checkbox"
+  of miRadio: "radio"
+
+proc menuItemJson(item: MenuItem): MenuItemJson =
+  result = MenuItemJson(
+    id: item.id,
+    label: item.label,
+    accelerator: item.accelerator,
+    kind: item.kind.menuKindName,
+    enabled: item.enabled,
+    checked: item.checked,
+  )
+  for child in item.children:
+    result.children.add child.menuItemJson
+
+proc menuItemsJson(items: openArray[MenuItem]): seq[MenuItemJson] =
+  for item in items:
+    result.add item.menuItemJson
+
+proc trayOptionsJson(options: TrayOptions): TrayOptionsJson =
+  TrayOptionsJson(
+    id: options.id,
+    tooltip: options.tooltip,
+    iconPath: options.iconPath,
+    templateIconPath: options.templateIconPath,
+    menu: options.menu.menuItemsJson,
+  )
+
 proc headersFromJson(headersJson: string): seq[Header] =
   try:
     for item in headersJson.fromJson(seq[HeaderJson]):
@@ -228,6 +292,17 @@ proc findScheme(state: DarwinState; scheme: string): SchemeRegistration =
   for registration in state.schemes:
     if registration.scheme == scheme:
       return registration
+
+proc findTray(state: DarwinState; id: string): TrayRegistration =
+  for registration in state.trays:
+    if registration.id == id:
+      return registration
+
+proc removeTray(state: DarwinState; id: string) =
+  for i in 0 ..< state.trays.len:
+    if state.trays[i].id == id:
+      state.trays.delete i
+      return
 
 proc hasScheme(state: DarwinState; scheme: string): bool =
   state.findScheme(scheme) != nil
@@ -378,6 +453,12 @@ proc eventCb(userdata: pointer; kind, width, height: int32) {.cdecl, gcsafe.} =
   state.eventCallback(WindowEvent(kind: eventKind, width: width,
       height: height))
 
+proc trayCb(userdata: pointer; id: ConstCString) {.cdecl, gcsafe.} =
+  let registration = cast[TrayRegistration](userdata)
+  if registration == nil or registration.cb.isNil:
+    return
+  registration.cb(id.cstringToString)
+
 proc dispatchCb(userdata: pointer) {.cdecl, gcsafe.} =
   let payload = cast[ptr DispatchPayload](userdata)
   if payload == nil:
@@ -439,7 +520,7 @@ proc create(debug: bool): BackendHandle =
     deinitLock(shared.lock)
     deallocShared(shared)
     raise newException(DarwinBackendError, "viewy_darwin_window_create failed")
-  let state = DarwinState(shared: shared, bindings: @[], schemes: @[],
+  let state = DarwinState(shared: shared, bindings: @[], schemes: @[], trays: @[],
       dispatches: @[])
   shared.owner = cast[pointer](state)
   viewyDarwinSetEventCallback(shared.window, eventCb, cast[pointer](state))
@@ -469,6 +550,7 @@ proc destroy(h: BackendHandle) =
     shared.app = nil
   state.bindings.setLen(0)
   state.schemes.setLen(0)
+  state.trays.setLen(0)
   state.dispatches.setLen(0)
   state.eventCallback = nil
   shared.owner = nil
@@ -606,6 +688,43 @@ proc resolve(h: BackendHandle; id: string; ok: bool; jsonResult: string) =
 proc onWindowEvent(h: BackendHandle; cb: WindowEventCallback) =
   h.toState.eventCallback = cb
 
+proc trayCreate(h: BackendHandle; options: TrayOptions; cb: MenuCallback) =
+  let state = h.toState
+  state.assertUiThread
+  if options.id.len == 0:
+    raise newException(DarwinBackendError,
+        "native macOS tray create failed: empty tray id")
+  if cb.isNil:
+    raise newException(DarwinBackendError,
+        "native macOS tray create failed: nil callback")
+  if state.findTray(options.id) != nil:
+    raise newException(DarwinBackendError,
+        "native macOS tray create failed: duplicate tray id " & options.id)
+  let registration = TrayRegistration(id: options.id, cb: cb)
+  let payload = options.trayOptionsJson.toJson()
+  if viewyDarwinTrayCreate(state.shared.app, payload.cstring, trayCb,
+      cast[pointer](registration)) == 0:
+    raise newException(DarwinBackendError, "viewy_darwin_tray_create failed")
+  state.trays.add registration
+
+proc trayUpdate(h: BackendHandle; id: string; options: TrayOptions) =
+  let state = h.toState
+  state.assertUiThread
+  if id.len == 0:
+    raise newException(DarwinBackendError,
+        "native macOS tray update failed: empty tray id")
+  let payload = options.trayOptionsJson.toJson()
+  viewyDarwinTrayUpdate(state.shared.app, id.cstring, payload.cstring)
+
+proc trayDestroy(h: BackendHandle; id: string) =
+  let state = h.toState
+  state.assertUiThread
+  if id.len == 0:
+    raise newException(DarwinBackendError,
+        "native macOS tray destroy failed: empty tray id")
+  viewyDarwinTrayDestroy(state.shared.app, id.cstring)
+  state.removeTray(id)
+
 proc newBackend*(): Backend =
   Backend(
     create: create,
@@ -625,7 +744,10 @@ proc newBackend*(): Backend =
     bindFn: bindFn,
     unbind: unbind,
     resolve: resolve,
-    caps: {capScheme, capWindowEvents},
+    caps: {capScheme, capTray, capWindowEvents},
     registerSchemeImpl: registerScheme,
+    trayCreateImpl: trayCreate,
+    trayUpdateImpl: trayUpdate,
+    trayDestroyImpl: trayDestroy,
     onWindowEventImpl: onWindowEvent,
   )
