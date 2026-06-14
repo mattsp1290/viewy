@@ -31,12 +31,6 @@ var
   windowDone {.global.}: bool
   windowReportJson {.global.}: string
 
-proc pumpPending() {.gcsafe.} =
-  for i in 0 ..< 20:
-    discard i
-    {.cast(gcsafe).}:
-      poll(1)
-
 proc resolveByDispatch(id: string; ok: bool; json: string) {.gcsafe.} =
   {.cast(gcsafe).}:
     backend.dispatchResolve(windowHandle, id, ok, json)
@@ -44,9 +38,22 @@ proc resolveByDispatch(id: string; ok: bool; json: string) {.gcsafe.} =
 proc invokeRpc(name, id, jsonArgs: string) {.gcsafe.} =
   {.cast(gcsafe).}:
     let rpc = binding(name)
-    let reply = rpc.callWithResolver(id, jsonArgs, resolveByDispatch)
+    var pendingDone = false
+    let resolver =
+      proc(resolveId: string; ok: bool; json: string) {.gcsafe.} =
+        resolveByDispatch(resolveId, ok, json)
+        {.cast(gcsafe).}:
+          pendingDone = true
+    let reply = rpc.callWithResolver(id, jsonArgs, resolver)
     if reply.pending:
-      pumpPending()
+      for i in 0 ..< 2000:
+        discard i
+        if pendingDone:
+          break
+        poll(10)
+      if not pendingDone:
+        backend.dispatchResolve(windowHandle, id, false,
+          """{"error":{"message":"async RPC timed out","type":"TimeoutError"}}""")
     else:
       backend.dispatchResolve(windowHandle, id, reply.ok, reply.json)
 
@@ -122,6 +129,16 @@ else:
 <meta charset="utf-8">
 <script>
 (async function () {
+  let settled = false;
+  function finish(report) {
+    if (settled) return;
+    settled = true;
+    window.report(JSON.stringify(report));
+  }
+  setTimeout(function () {
+    finish({ ok: false, timeout: true });
+  }, 5000);
+
   const report = { ok: false };
   try {
     report.value = await window.asyncAdd(2, 5);
@@ -138,7 +155,7 @@ else:
   } catch (error) {
     report.unexpected = String(error && error.message || error);
   }
-  await window.report(JSON.stringify(report));
+  finish(report);
 })();
 </script>
 """)
