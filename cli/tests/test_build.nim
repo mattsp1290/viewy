@@ -6,6 +6,12 @@ import viewy_cli/config
 import zippy
 
 suite "viewy build":
+  template nimCompileCall(calls: untyped): untyped =
+    when defined(windows):
+      calls[2]
+    else:
+      calls[1]
+
   proc readSidecars(dir: string): seq[string] =
     var files: seq[string]
     for file in walkDirRec(dir):
@@ -108,16 +114,38 @@ suite "viewy build":
 
       when defined(macosx):
         check calls.len == 3
+      elif defined(windows):
+        check calls.len == 3
       else:
         check calls.len == 2
       check calls[0] == ("npm run build", dir / "frontend")
-      check calls[1].command.startsWith("nim c ")
-      check calls[1].command.contains("-d:viewyBackend=lite")
-      check calls[1].command.contains("-d:viewyGeneratedAssets")
-      check calls[1].command.contains("-d:release")
-      check calls[1].command.contains("-d:strip")
-      check calls[1].command.contains("--opt:size")
-      check calls[1].command.contains(dir / "src" / "main.nim")
+      when defined(windows):
+        let
+          manifest = dir / "build" / "demo.manifest"
+          rc = dir / "build" / "demo.rc"
+          manifestText = readFile(manifest)
+        check fileExists(manifest)
+        check fileExists(rc)
+        check manifestText.startsWith("<?xml")
+        check manifestText.contains("<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersion=\"1.0\">")
+        check manifestText.contains("<application xmlns=\"urn:schemas-microsoft-com:asm.v3\">")
+        check manifestText.contains("<dpiAwareness xmlns=\"http://schemas.microsoft.com/SMI/2016/WindowsSettings\">PerMonitorV2</dpiAwareness>")
+        check manifestText.contains("<dpiAware xmlns=\"http://schemas.microsoft.com/SMI/2005/WindowsSettings\">true/pm</dpiAware>")
+        when defined(vcc):
+          check calls[1].command.startsWith("rc /nologo /fo ")
+          check nimCompileCall(calls).command.contains("--passL:" &
+            quoteShell(dir / "build" / "demo.res"))
+        else:
+          check calls[1].command.startsWith("windres -O coff -o ")
+          check nimCompileCall(calls).command.contains("--passL:" &
+            quoteShell(dir / "build" / "demo_resources.o"))
+      check nimCompileCall(calls).command.startsWith("nim c ")
+      check nimCompileCall(calls).command.contains("-d:viewyBackend=lite")
+      check nimCompileCall(calls).command.contains("-d:viewyGeneratedAssets")
+      check nimCompileCall(calls).command.contains("-d:release")
+      check nimCompileCall(calls).command.contains("-d:strip")
+      check nimCompileCall(calls).command.contains("--opt:size")
+      check nimCompileCall(calls).command.contains(dir / "src" / "main.nim")
       check fileExists(dir / "src" / "viewy_assets.nim")
       check output.contains("Built binary:")
       check output.contains("6 bytes")
@@ -170,9 +198,9 @@ suite "viewy build":
       let output = buildApp(cfg, projectDir = dir, exec = fakeExec)
 
       check output.contains("Built binary:")
-      check calls[1].command.contains("-d:viewyBackend=lite")
-      check calls[1].command.contains("-d:viewyGeneratedServedAssets")
-      check not calls[1].command.contains("-d:viewyGeneratedAssets")
+      check nimCompileCall(calls).command.contains("-d:viewyBackend=lite")
+      check nimCompileCall(calls).command.contains("-d:viewyGeneratedServedAssets")
+      check not nimCompileCall(calls).command.contains("-d:viewyGeneratedAssets")
       check fileExists(dir / "src" / "viewy_assets.nim")
       check dirExists(dir / "src" / "viewy_assets_served")
     finally:
@@ -215,13 +243,14 @@ suite "viewy build":
 
       check output.contains("Built binary:")
       when defined(linux):
-        check calls[1].command.contains("-d:viewyBackend=native")
-        check not calls[1].command.contains("-d:viewyBackend=lite")
+        check nimCompileCall(calls).command.contains("-d:viewyBackend=native")
+        check not nimCompileCall(calls).command.contains("-d:viewyBackend=lite")
       else:
-        check calls[1].command.contains("-d:viewyBackend=lite")
-      check calls[1].command.contains("-d:viewyGeneratedSchemeAssets")
-      check not calls[1].command.contains("-d:viewyGeneratedServedAssets")
-      check not calls[1].command.contains("-d:viewyGeneratedAssets")
+        check nimCompileCall(calls).command.contains("-d:viewyBackend=lite")
+      check nimCompileCall(calls).command.contains("-d:viewyGeneratedSchemeAssets")
+      check not nimCompileCall(calls).command.contains(
+        "-d:viewyGeneratedServedAssets")
+      check not nimCompileCall(calls).command.contains("-d:viewyGeneratedAssets")
       check fileExists(dir / "src" / "viewy_assets.nim")
       let generated = readFile(dir / "src" / "viewy_assets.nim")
       check generated.contains("const viewySchemeDocumentPath* = \"/index.html\"")
