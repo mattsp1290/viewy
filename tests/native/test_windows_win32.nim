@@ -61,6 +61,7 @@ else:
         lpszClassName: newWideCString("ViewyWindow"),
       )
     let appIcon = loadIconW(nil, idiApplication())
+    discard registerWindowMessageW(newWideCString("TaskbarCreated"))
     discard loadImageW(nil, newWideCString("icon.ico"), imageIcon, 0, 0,
       lrLoadFromFile)
     discard registerClassExW(addr wc)

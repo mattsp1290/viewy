@@ -138,6 +138,8 @@ const
   virtualHostOrigin = "https://viewy.localhost"
   virtualHostFilter = "https://viewy.localhost/*"
   maxSchemeRequestBodyBytes = 10 * 1024 * 1024
+  trayMenuCommandMin = Uint(1000)
+  trayMenuCommandMax = Uint(0xEFFF)
   wmViewyDispatch = wmApp + Uint(0x101)
   wmViewyHandoff = wmApp + Uint(0x102)
   wmViewyTerminate = wmApp + Uint(0x103)
@@ -470,11 +472,51 @@ proc shellNotify(state: WindowsState; message: Dword; tray: TrayRegistration;
     raise newException(WindowsBackendError, "native Windows tray " & op &
         " failed: Shell_NotifyIconW failed")
 
+proc tryShellNotify(state: WindowsState; message: Dword; tray: TrayRegistration;
+    flags: Uint): bool =
+  var data = state.notifyData(tray, flags)
+  shellNotifyIconW(message, addr data) != winFalse
+
+proc restoreTrayIcons(state: WindowsState) =
+  for tray in state.trays:
+    discard state.tryShellNotify(nimAdd, tray, nifMessage or nifIcon or nifTip)
+
+proc modifyTrayIcon(state: WindowsState; tray: TrayRegistration) =
+  if state.tryShellNotify(nimModify, tray, nifMessage or nifIcon or nifTip):
+    return
+  if state.tryShellNotify(nimAdd, tray, nifMessage or nifIcon or nifTip):
+    return
+  raise newException(WindowsBackendError,
+      "native Windows tray update failed: Shell_NotifyIconW failed")
+
+proc hasMenuCommand(state: WindowsState; commandId: Uint): bool =
+  for tray in state.trays:
+    for command in tray.commands:
+      if command.commandId == commandId:
+        return true
+
 proc nextMenuCommandId(state: WindowsState): Uint =
-  if state.nextMenuCommandId == 0:
-    state.nextMenuCommandId = Uint(1000)
-  result = state.nextMenuCommandId
-  inc state.nextMenuCommandId
+  var candidate =
+    if state.nextMenuCommandId >= trayMenuCommandMin and
+        state.nextMenuCommandId <= trayMenuCommandMax:
+      state.nextMenuCommandId
+    else:
+      trayMenuCommandMin
+  let commandCount = int(trayMenuCommandMax - trayMenuCommandMin + 1)
+  for _ in 0 ..< commandCount:
+    if not state.hasMenuCommand(candidate):
+      result = candidate
+      if candidate == trayMenuCommandMax:
+        state.nextMenuCommandId = trayMenuCommandMin
+      else:
+        state.nextMenuCommandId = candidate + Uint(1)
+      return
+    if candidate == trayMenuCommandMax:
+      candidate = trayMenuCommandMin
+    else:
+      inc candidate
+  raise newException(WindowsBackendError,
+      "native Windows tray menu command id space exhausted")
 
 proc menuFlags(item: MenuItem): Uint =
   result = mfString
@@ -1112,6 +1154,8 @@ proc startWebView2(state: WindowsState) =
     raise newException(WindowsBackendError,
         "CreateCoreWebView2EnvironmentWithOptions failed")
 
+var taskbarCreatedMessage {.global.}: Uint
+
 proc wndProc(hwnd: Hwnd; msg: Uint; wParam: Wparam;
     lParam: Lparam): Lresult {.stdcall, gcsafe.} =
   if msg == wmNcCreate:
@@ -1125,6 +1169,11 @@ proc wndProc(hwnd: Hwnd; msg: Uint; wParam: Wparam;
       gwlpUserData)))
   if state == nil:
     return defWindowProcW(hwnd, msg, wParam, lParam)
+
+  if taskbarCreatedMessage != Uint(0) and msg == taskbarCreatedMessage:
+    {.cast(gcsafe).}:
+      state.restoreTrayIcons()
+    return Lresult(0)
 
   case msg
   of wmSize:
@@ -1208,6 +1257,8 @@ proc wndProc(hwnd: Hwnd; msg: Uint; wParam: Wparam;
 var windowClassRegistered {.global.}: bool
 
 proc registerWindowClass(instance: Hinstance) =
+  if taskbarCreatedMessage == Uint(0):
+    taskbarCreatedMessage = registerWindowMessageW(wide("TaskbarCreated"))
   if windowClassRegistered:
     return
   var wc = WndClassExW(
@@ -1475,9 +1526,6 @@ proc trayCreate(h: BackendHandle; options: TrayOptions; cb: MenuCallback) =
   try:
     tray.hMenu = state.buildTrayMenu(tray, options.menu)
     state.shellNotify(nimAdd, tray, nifMessage or nifIcon or nifTip, "create")
-    var data = state.notifyData(tray, Uint(0))
-    data.uVersion = notifyIconVersion4
-    discard shellNotifyIconW(nimSetVersion, addr data)
     state.trays.add tray
   except CatchableError:
     state.deleteTrayIcon(tray)
@@ -1515,7 +1563,7 @@ proc trayUpdate(h: BackendHandle; id: string; options: TrayOptions) =
   tray.commands = @[]
   try:
     tray.hMenu = state.buildTrayMenu(tray, options.menu)
-    state.shellNotify(nimModify, tray, nifMessage or nifIcon or nifTip, "update")
+    state.modifyTrayIcon(tray)
     if oldMenu != nil:
       discard destroyMenu(oldMenu)
     if oldIcon != nil and oldOwnsIcon:

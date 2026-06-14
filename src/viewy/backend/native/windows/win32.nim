@@ -385,6 +385,9 @@ proc getModuleHandleW*(lpModuleName: Lpcwstr): Hinstance
 proc loadCursorW*(hInstance: Hinstance; lpCursorName: Lpcwstr): Hcursor
   {.importc: "LoadCursorW", header: "windows.h", stdcall.}
 
+proc registerWindowMessageW*(lpString: Lpcwstr): Uint
+  {.importc: "RegisterWindowMessageW", header: "windows.h", stdcall.}
+
 proc loadIconW*(hInstance: Hinstance; lpIconName: Lpcwstr): Hicon
   {.importc: "LoadIconW", header: "windows.h", stdcall.}
 

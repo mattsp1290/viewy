@@ -264,7 +264,7 @@ Selected backend capability gates are also part of the contract. Current gates:
 - `-d:viewyBackend=native` on Linux advertises `capScheme`.
 - `-d:viewyBackend=native` on macOS advertises `capScheme`, `capMenu`,
   `capTray`, and `capWindowEvents`.
-- `-d:viewyBackend=native` on Windows advertises `capScheme`.
+- `-d:viewyBackend=native` on Windows advertises `capScheme` and `capTray`.
 - `-d:viewyBackend=native` on unsupported platforms advertises no capabilities;
   importing `viewy/backend/select` and calling `newBackend()` fails at compile
   time until that platform backend lands.
