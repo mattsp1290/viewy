@@ -106,6 +106,10 @@ jobs:
           python -c "import os; os.makedirs('build', exist_ok=True)"
           nim c --hints:off --mm:orc --threads:on -d:viewyBackend=lite -o:build/window_smoke_webview2_pin tests/spike/window_smoke.nim
 
+      - name: Check native Windows WebView2 environment spike
+        if: runner.os == 'Windows'
+        run: nim check --hints:off --mm:orc --threads:on -d:nimcheck --path:src tests/native/test_windows_webview2_env_spike.nim
+
       - name: Check native Windows Win32 FFI
         if: runner.os == 'Windows'
         run: nim check --hints:off --mm:orc --threads:on -d:nimcheck --path:src tests/native/test_windows_win32.nim
