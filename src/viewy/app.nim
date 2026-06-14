@@ -24,6 +24,11 @@ type
     assetHandler: ServedAssetHandler
     html: string
     devUrl: string
+    windowEventHandlers: seq[WindowEventHandler]
+
+  WindowEventHandler* = proc(event: WindowEvent) {.closure, gcsafe.}
+    ## Callback invoked on the backend UI thread for native window lifecycle
+    ## events.
 
 proc newApp*(title = "viewy"; width = 1024; height = 768;
     resizable = true; assets = defaultAssetMode; html = defaultEmbeddedHtml;
@@ -88,6 +93,22 @@ proc schemeHandler(app: App): AssetHandler =
     return app.assetHandler
   assetTableHandler(generatedSchemeAssetTable(), generatedSchemeDocumentPath())
 
+proc requireAppBackendCap(app: App; cap: Capability; operation: string) =
+  requireBackendCap(app.backend, cap, operation)
+
+proc dispatchWindowEvent(app: App; event: WindowEvent) {.gcsafe.} =
+  for handler in app.windowEventHandlers:
+    handler(event)
+
+proc bindWindowEvents(app: App) =
+  if app.windowEventHandlers.len == 0:
+    return
+  app.requireAppBackendCap(capWindowEvents, "onWindowEvent")
+  app.backend.onWindowEventImpl(app.handle,
+    proc(event: WindowEvent) {.gcsafe.} =
+      app.dispatchWindowEvent(event)
+  )
+
 proc run*(app: App) =
   ## Run the app until the backend event loop exits.
   ##
@@ -113,6 +134,7 @@ proc run*(app: App) =
     app.backend.setSize(app.handle, app.width, app.height, hints)
     app.backend.init(app.handle, viewyRuntimeJs)
     app.bindRpc()
+    app.bindWindowEvents()
     when defined(viewyDev):
       app.backend.navigate(app.handle, viewyDevUrl)
     else:
@@ -148,3 +170,20 @@ proc backend*(app: App): Backend =
 proc handle*(app: App): BackendHandle =
   ## Return the current backend handle, or nil before/after `run`.
   app.handle
+
+proc onWindowEvent*(app: App; cb: WindowEventHandler) =
+  ## Register a callback for native window lifecycle events.
+  ##
+  ## Call this before `run`. Backends invoke callbacks on their UI thread.
+  ## Backends without `capWindowEvents` fail when `run` attempts to subscribe.
+  doAssert not cb.isNil, "onWindowEvent callback must not be nil"
+  doAssert app.handle == nil, "onWindowEvent must be registered before run"
+  app.windowEventHandlers.add cb
+
+proc on*(app: App; kind: WindowEventKind; cb: WindowEventHandler) =
+  ## Register a callback for one native window lifecycle event kind.
+  doAssert not cb.isNil, "on callback must not be nil"
+  app.onWindowEvent(proc(event: WindowEvent) {.gcsafe.} =
+    if event.kind == kind:
+      cb(event)
+  )

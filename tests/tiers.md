@@ -22,6 +22,8 @@ Runs headlessly everywhere and does not create a backend window.
 - `test_runtime_js.nim`
 - `test_served_auth.nim`
 - `test_scheme_routing.nim`
+- `test_window_event_exports.nim`
+- `test_window_events.nim`
 - `tviewy.nim`
 
 ### Native Compile Smokes
