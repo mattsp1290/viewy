@@ -122,7 +122,7 @@ app.run()
 
 `webview/webview` has **no custom scheme handler** (unlike wry/WKURLSchemeHandler). Current options are:
 
-- **Scheme assets (default):** Production builds emit a generated `dist/` asset table (`assets = "scheme"`). Native backends will load it through a custom scheme; the lite backend consumes the same table through the loopback served fallback until native scheme support lands.
+- **Scheme assets (default):** Production builds emit a generated `dist/` asset table (`assets = "scheme"`). Native backends load it through custom scheme handling; the lite backend consumes the same table through the loopback served fallback.
 - **Single-file injection (legacy `assets = "single"`):** Production builds require the frontend to emit one self-contained `index.html` (CSS/JS inlined). The CLI build step embeds it via `staticRead` (through a generated `viewy_assets.nim`) and calls `setHtml`. No sockets, no temp files. Limitation: very large apps and `fetch()` of relative assets need scheme or served mode.
 - **Loopback micro-server (legacy `assets = "served"`):** Embed all of `dist/` into the binary (compile-time table: path → bytes, gzip-compressed with `zippy`). At startup, bind an HTTP server on `127.0.0.1:0` (ephemeral port), require per-launch credentials, and navigate the webview to it. Document the tradeoff honestly.
 - **Dev mode:** neither — `navigate(devServerUrl)` (Vite, default `http://localhost:5173`), enabled by compiling with `-d:viewyDev=http://localhost:5173`.

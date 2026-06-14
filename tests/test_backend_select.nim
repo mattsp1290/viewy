@@ -36,9 +36,19 @@ doAssert backend.dispatchTerminate != nil
       check exitCode == 0
     else:
       check exitCode != 0
-      check output.contains("viewyBackend=native currently requires Linux or macOS")
+      check output.contains("viewyBackend=native currently requires Linux, macOS, or Windows")
 
   test "native selected caps are platform-specific":
+    block:
+      let (output, exitCode) = nimCheck(
+          """
+import viewy/backend/api
+static:
+  doAssert selectedBackend == "native"
+""")
+      checkpoint output
+      check exitCode == 0
+
     block:
       let (output, exitCode) = nimCheck(
           """

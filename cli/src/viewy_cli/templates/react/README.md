@@ -18,8 +18,9 @@ npm run dev
 ```
 
 Production builds emit a Vite `dist/` tree and embed it in the Nim binary as a
-generated asset table. The current lite backend loads those assets through a
-loopback fallback until native scheme backends land.
+generated asset table. Scheme builds use the native backend on Linux, macOS,
+and Windows; legacy single-file and served builds remain available through the
+lite compatibility backend.
 
 ## Build
 

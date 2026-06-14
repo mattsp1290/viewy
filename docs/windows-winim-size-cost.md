@@ -148,10 +148,9 @@ surface and would add a broad Windows API dependency to the project.
 ## Required App-Level Follow-Up
 
 If `winim` is reconsidered later for production backend code, run an app-level
-measurement on a Windows runner or VM with MinGW or MSVC. Do not rely on the
-current `viewy build --release` backend default for this comparison: today the
-CLI can select `-d:viewyBackend=lite` for scheme assets on Windows. Force the
-native backend explicitly in both variants.
+measurement on a Windows runner or VM with MinGW or MSVC. Force the native
+backend explicitly in both variants so future CLI default changes cannot skew
+the comparison.
 
 1. Build the vanilla template with the current hand-written backend:
    `nim c --mm:orc --threads:on -d:release -d:strip --opt:size

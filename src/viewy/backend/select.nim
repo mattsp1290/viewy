@@ -19,6 +19,6 @@ elif selectedBackend == "native":
     export backend.newBackend
   else:
     template newBackend*(): Backend =
-      {.error: "viewyBackend=native currently requires Linux or macOS".}
+      {.error: "viewyBackend=native currently requires Linux, macOS, or Windows".}
 else:
   {.error: "unsupported -d:viewyBackend value; expected 'native' or 'lite'".}

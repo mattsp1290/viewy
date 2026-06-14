@@ -176,10 +176,7 @@ proc emitMacBundle(cfg: ViewyConfig; binaryPath, buildDir: string;
 proc backendDefine(runtimeMode: runtimeAssets.AssetMode): string =
   case runtimeMode
   of runtimeAssets.assetsScheme:
-    when defined(linux):
-      "-d:viewyBackend=native"
-    else:
-      "-d:viewyBackend=lite"
+    "-d:viewyBackend=native"
   of runtimeAssets.assetsEmbedded, runtimeAssets.assetsServedMode:
     "-d:viewyBackend=lite"
   of runtimeAssets.assetsDevServer:

@@ -75,10 +75,9 @@ Build on the operating system you are targeting:
 - macOS: system WebKit and Cocoa frameworks;
 - Windows: MinGW-w64 or MSVC with WebView2 support.
 
-The CI matrix builds and runs windowed lite tests on Linux, macOS, Windows
-MinGW, and Windows MSVC. Native backend coverage is added per platform as the
-native implementations land. Other compiler/platform combinations are not part
-of the supported surface.
+The CI matrix builds and runs windowed lite and native tests on Linux, macOS,
+Windows MinGW, and Windows MSVC. Other compiler/platform combinations are not
+part of the supported surface.
 
 ## Runtime Scope
 

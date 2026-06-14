@@ -3,7 +3,7 @@ import viewy
 when defined(viewyGeneratedAssets) or defined(viewyGeneratedServedAssets) or
     defined(viewyGeneratedSchemeAssets):
   import std/os
-  import viewy/backend/lite/backend
+  import viewy/backend/select
 
 when defined(viewyGeneratedServedAssets) or defined(viewyGeneratedSchemeAssets):
   import viewy/assets_served
@@ -23,7 +23,7 @@ when isMainModule:
         b.setHtml(h, embeddedHtml())
       else:
         b.navigate(h, server.documentUrl())
-      dispatchTerminate(h)
+      b.dispatchTerminate(h)
       b.run(h)
       b.destroy(h)
     else:

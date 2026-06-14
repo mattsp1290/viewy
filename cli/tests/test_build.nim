@@ -242,11 +242,8 @@ suite "viewy build":
       let output = buildApp(cfg, projectDir = dir, exec = fakeExec)
 
       check output.contains("Built binary:")
-      when defined(linux):
-        check nimCompileCall(calls).command.contains("-d:viewyBackend=native")
-        check not nimCompileCall(calls).command.contains("-d:viewyBackend=lite")
-      else:
-        check nimCompileCall(calls).command.contains("-d:viewyBackend=lite")
+      check nimCompileCall(calls).command.contains("-d:viewyBackend=native")
+      check not nimCompileCall(calls).command.contains("-d:viewyBackend=lite")
       check nimCompileCall(calls).command.contains("-d:viewyGeneratedSchemeAssets")
       check not nimCompileCall(calls).command.contains(
         "-d:viewyGeneratedServedAssets")

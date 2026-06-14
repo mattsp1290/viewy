@@ -129,9 +129,9 @@ envelopes and metadata schema are documented in [protocol.md](protocol.md).
 viewy has four content loading modes:
 
 - Scheme mode is the default production asset mode in new `viewy.json` files.
-  It builds a generated `dist/` asset table. Until native backends implement
-  custom scheme loading, the lite backend consumes that table through the same
-  loopback served-mode fallback as served mode.
+  It builds a generated `dist/` asset table. Native backends serve that table
+  through platform scheme handling; the lite backend consumes the same table
+  through the loopback served-mode fallback.
 - Embedded mode is the legacy `assets = "single"` production path. The CLI
   builds a single-file frontend document and generates a Nim module whose
   `staticRead` content is loaded with `setHtml`.
