@@ -353,6 +353,12 @@ proc coInitializeEx*(pvReserved: pointer; dwCoInit: Dword): Long
 proc coUninitialize*()
   {.importc: "CoUninitialize", header: "objbase.h", stdcall.}
 
+proc coTaskMemFree*(pv: pointer)
+  {.importc: "CoTaskMemFree", header: "objbase.h", stdcall.}
+
+proc shCreateMemStream*(pInit: pointer; cbInit: Uint): pointer
+  {.importc: "SHCreateMemStream", header: "shlwapi.h", stdcall.}
+
 proc createAcceleratorTableW*(lpaccl: ptr Accel; cEntries: Int): Haccel
   {.importc: "CreateAcceleratorTableW", header: "windows.h", stdcall.}
 

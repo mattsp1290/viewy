@@ -25,6 +25,7 @@ type
   Refiid* = ptr Iid
 
   IStream* = object
+    lpVtbl*: ptr IStreamVtbl
   IUnknown* = object
   ICoreWebView2* = object
     lpVtbl*: ptr CoreWebView2Vtbl
@@ -41,7 +42,10 @@ type
   ICoreWebView2WebResourceRequestedEventArgs* = object
     lpVtbl*: ptr CoreWebView2WebResourceRequestedEventArgsVtbl
   ICoreWebView2Deferral* = object
+  ICoreWebView2HttpHeadersCollectionIterator* = object
+    lpVtbl*: ptr CoreWebView2HttpHeadersCollectionIteratorVtbl
   ICoreWebView2HttpRequestHeaders* = object
+    lpVtbl*: ptr CoreWebView2HttpRequestHeadersVtbl
   ICoreWebView2HttpResponseHeaders* = object
   ICoreWebView2EnvironmentOptions* = object
 
@@ -78,6 +82,45 @@ type
     mfrProgrammatic = 0
     mfrNext = 1
     mfrPrevious = 2
+
+  IStreamVtbl* = object
+    queryInterface*: QueryInterfaceProc[IStream]
+    addRef*: AddRefProc[IStream]
+    release*: ReleaseProc[IStream]
+    read*: proc(self: ptr IStream; pv: pointer; cb: Ulong;
+      pcbRead: ptr Ulong): Hresult {.stdcall.}
+    write*: ComMethod
+
+  CoreWebView2HttpHeadersCollectionIteratorVtbl* = object
+    queryInterface*: QueryInterfaceProc[ICoreWebView2HttpHeadersCollectionIterator]
+    addRef*: AddRefProc[ICoreWebView2HttpHeadersCollectionIterator]
+    release*: ReleaseProc[ICoreWebView2HttpHeadersCollectionIterator]
+    getCurrentHeader*: proc(
+      self: ptr ICoreWebView2HttpHeadersCollectionIterator;
+      name, value: Pwwstr): Hresult {.stdcall.}
+    getHasCurrentHeader*: proc(
+      self: ptr ICoreWebView2HttpHeadersCollectionIterator;
+      hasCurrent: ptr Bool): Hresult {.stdcall.}
+    moveNext*: proc(self: ptr ICoreWebView2HttpHeadersCollectionIterator;
+      hasNext: ptr Bool): Hresult {.stdcall.}
+
+  CoreWebView2HttpRequestHeadersVtbl* = object
+    queryInterface*: QueryInterfaceProc[ICoreWebView2HttpRequestHeaders]
+    addRef*: AddRefProc[ICoreWebView2HttpRequestHeaders]
+    release*: ReleaseProc[ICoreWebView2HttpRequestHeaders]
+    getHeader*: proc(self: ptr ICoreWebView2HttpRequestHeaders;
+      name: Pcwstr; value: Pwwstr): Hresult {.stdcall.}
+    getHeaders*: proc(self: ptr ICoreWebView2HttpRequestHeaders;
+      name: Pcwstr;
+      value: ptr ptr ICoreWebView2HttpHeadersCollectionIterator): Hresult {.stdcall.}
+    contains*: proc(self: ptr ICoreWebView2HttpRequestHeaders;
+      name: Pcwstr; value: ptr Bool): Hresult {.stdcall.}
+    setHeader*: proc(self: ptr ICoreWebView2HttpRequestHeaders;
+      name, value: Pcwstr): Hresult {.stdcall.}
+    removeHeader*: proc(self: ptr ICoreWebView2HttpRequestHeaders;
+      name: Pcwstr): Hresult {.stdcall.}
+    getIterator*: proc(self: ptr ICoreWebView2HttpRequestHeaders;
+      value: ptr ptr ICoreWebView2HttpHeadersCollectionIterator): Hresult {.stdcall.}
 
   CoreWebView2SettingsVtbl* = object
     queryInterface*: QueryInterfaceProc[ICoreWebView2Settings]
@@ -398,6 +441,9 @@ const
   iidICoreWebView2CreateCoreWebView2ControllerCompletedHandler* = Iid(
     data1: 0x6c4819f3'u32, data2: 0xc9b7'u16, data3: 0x4260'u16,
     data4: [0x81'u8, 0x27, 0xc9, 0xf5, 0xbd, 0xe7, 0xf6, 0x8c])
+  iidICoreWebView2WebResourceRequestedEventHandler* = Iid(
+    data1: 0xab00b74c'u32, data2: 0x15f1'u16, data3: 0x4646'u16,
+    data4: [0x80'u8, 0xe8, 0xe7, 0x63, 0x41, 0xd2, 0x5d, 0x71])
 
 static:
   doAssert webView2SdkPackage == webView2ExpectedPackage
@@ -408,6 +454,10 @@ static:
   doAssert sizeof(WebResourceContext) == sizeof(cint)
   doAssert sizeof(MoveFocusReason) == sizeof(cint)
   doAssert sizeof(EventRegistrationToken) == 8
+  doAssert sizeof(IStreamVtbl) == sizeof(pointer) * 5
+  doAssert sizeof(CoreWebView2HttpHeadersCollectionIteratorVtbl) ==
+    sizeof(pointer) * 6
+  doAssert sizeof(CoreWebView2HttpRequestHeadersVtbl) == sizeof(pointer) * 9
   doAssert sizeof(CoreWebView2EnvironmentVtbl) == sizeof(pointer) * 8
   doAssert sizeof(CoreWebView2ControllerVtbl) == sizeof(pointer) * 26
   doAssert sizeof(CoreWebView2SettingsVtbl) == sizeof(pointer) * 21

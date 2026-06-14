@@ -23,7 +23,8 @@ else:
   doAssert nativeBackend.bindFn != nil
   doAssert nativeBackend.unbind != nil
   doAssert nativeBackend.resolve != nil
-  doAssert nativeBackend.caps == {}
+  doAssert nativeBackend.caps == {capScheme}
+  doAssert nativeBackend.registerSchemeImpl != nil
 
   when defined(nimcheck):
     var handle: BackendHandle
