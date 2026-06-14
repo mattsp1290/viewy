@@ -492,13 +492,6 @@ jobs:
         env:
           VIEWY_LIB_SRC: ${{ github.workspace }}
 
-      - name: Assert CLI platform build outputs
-        if: runner.os == 'macOS' || runner.os == 'Windows'
-        working-directory: cli
-        run: nim c --hints:off --mm:orc --threads:on --path:src --path:../src -r tests/test_e2e.nim
-        env:
-          VIEWY_LIB_SRC: ${{ github.workspace }}
-
       - name: Run CLI dev loop test (xvfb)
         if: runner.os == 'Linux'
         working-directory: cli

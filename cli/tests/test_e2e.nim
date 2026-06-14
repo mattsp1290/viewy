@@ -1,6 +1,7 @@
 import std/[os, osproc, strutils, tempfiles, unittest]
 
 const CommandTimeoutMs = 180_000
+const MaxReleaseBinaryBytes = 3 * 1024 * 1024
 
 let
   cliRoot = getCurrentDir()
@@ -74,7 +75,9 @@ suite "viewy cli e2e":
       check fileExists(appDir / "dist" / "index.html")
       check fileExists(generatedAssets)
       check fileExists(binaryPath)
-      check getFileSize(binaryPath) > 0
+      let binarySize = getFileSize(binaryPath)
+      check binarySize > 0
+      check binarySize < MaxReleaseBinaryBytes
 
       runGeneratedApp(binaryPath, appDir)
 
