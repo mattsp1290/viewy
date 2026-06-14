@@ -538,14 +538,6 @@ proc menuFlags(item: MenuItem): Uint =
   if item.checked:
     result = result or mfChecked
 
-proc menuLabel(item: MenuItem): string =
-  result = item.label
-  if result.len == 0:
-    result = item.id
-  if item.accelerator.len > 0:
-    result.add "\t"
-    result.add item.accelerator
-
 proc virtualKeyFor(key: string): Word =
   if key.len == 1:
     let ch = key[0]
@@ -588,6 +580,31 @@ proc virtualKeyFor(key: string): Word =
   of "Grave": vkOem3
   else: Word(0)
 
+proc acceleratorLabel(value: string): string =
+  try:
+    let accelerator = parseAccelerator(value, apWindows)
+    var parts: seq[string] = @[]
+    if amCtrl in accelerator.modifiers:
+      parts.add "Ctrl"
+    if amAlt in accelerator.modifiers:
+      parts.add "Alt"
+    if amShift in accelerator.modifiers:
+      parts.add "Shift"
+    if amSuper in accelerator.modifiers:
+      parts.add "Super"
+    parts.add accelerator.key
+    parts.join("+")
+  except AcceleratorParseError:
+    value
+
+proc menuLabel(item: MenuItem): string =
+  result = item.label
+  if result.len == 0:
+    result = item.id
+  if item.accelerator.len > 0:
+    result.add "\t"
+    result.add item.accelerator.acceleratorLabel
+
 proc acceleratorFor(item: MenuItem; commandId: Uint): Accel =
   let accelerator = parseAccelerator(item.accelerator, apWindows)
   let key = accelerator.key.virtualKeyFor()
@@ -602,6 +619,8 @@ proc acceleratorFor(item: MenuItem; commandId: Uint): Accel =
   if amCtrl in accelerator.modifiers:
     result.fVirt = result.fVirt or fControl
   if amShift in accelerator.modifiers:
+    result.fVirt = result.fVirt or fShift
+  if accelerator.key == "Plus":
     result.fVirt = result.fVirt or fShift
   if amAlt in accelerator.modifiers:
     result.fVirt = result.fVirt or fAlt
