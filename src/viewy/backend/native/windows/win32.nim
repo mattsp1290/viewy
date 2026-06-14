@@ -37,68 +37,135 @@ type
   WndProc* = proc(hwnd: Hwnd; msg: Uint; wParam: Wparam;
       lParam: Lparam): Lresult {.stdcall, gcsafe.}
 
-  Point* {.importc: "POINT", header: "windows.h", bycopy.} = object
-    x*: Long
-    y*: Long
+when defined(windows) or defined(nimcheck):
+  type
+    Point* {.importc: "POINT", header: "windows.h", bycopy.} = object
+      x*: Long
+      y*: Long
 
-  Size* {.importc: "SIZE", header: "windows.h", bycopy.} = object
-    cx*: Long
-    cy*: Long
+    Size* {.importc: "SIZE", header: "windows.h", bycopy.} = object
+      cx*: Long
+      cy*: Long
 
-  Rect* {.importc: "RECT", header: "windows.h", bycopy.} = object
-    left*: Long
-    top*: Long
-    right*: Long
-    bottom*: Long
+    Rect* {.importc: "RECT", header: "windows.h", bycopy.} = object
+      left*: Long
+      top*: Long
+      right*: Long
+      bottom*: Long
 
-  Msg* {.importc: "MSG", header: "windows.h", bycopy.} = object
-    hwnd*: Hwnd
-    message*: Uint
-    wParam*: Wparam
-    lParam*: Lparam
-    time*: Dword
-    pt*: Point
+    Msg* {.importc: "MSG", header: "windows.h", bycopy.} = object
+      hwnd*: Hwnd
+      message*: Uint
+      wParam*: Wparam
+      lParam*: Lparam
+      time*: Dword
+      pt*: Point
 
-  WndClassExW* {.importc: "WNDCLASSEXW", header: "windows.h", bycopy.} = object
-    cbSize*: Uint
-    style*: Uint
-    lpfnWndProc*: WndProc
-    cbClsExtra*: Int
-    cbWndExtra*: Int
-    hInstance*: Hinstance
-    hIcon*: Hicon
-    hCursor*: Hcursor
-    hbrBackground*: Hbrush
-    lpszMenuName*: Lpcwstr
-    lpszClassName*: Lpcwstr
-    hIconSm*: Hicon
+    WndClassExW* {.importc: "WNDCLASSEXW", header: "windows.h",
+        bycopy.} = object
+      cbSize*: Uint
+      style*: Uint
+      lpfnWndProc*: WndProc
+      cbClsExtra*: Int
+      cbWndExtra*: Int
+      hInstance*: Hinstance
+      hIcon*: Hicon
+      hCursor*: Hcursor
+      hbrBackground*: Hbrush
+      lpszMenuName*: Lpcwstr
+      lpszClassName*: Lpcwstr
+      hIconSm*: Hicon
 
-  CreateStructW* {.importc: "CREATESTRUCTW", header: "windows.h",
-      bycopy.} = object
-    lpCreateParams*: pointer
-    hInstance*: Hinstance
-    hMenu*: Hmenu
-    hwndParent*: Hwnd
-    cy*: Int
-    cx*: Int
-    y*: Int
-    x*: Int
-    style*: Long
-    lpszName*: Lpcwstr
-    lpszClass*: Lpcwstr
-    dwExStyle*: Dword
+    CreateStructW* {.importc: "CREATESTRUCTW", header: "windows.h",
+        bycopy.} = object
+      lpCreateParams*: pointer
+      hInstance*: Hinstance
+      hMenu*: Hmenu
+      hwndParent*: Hwnd
+      cy*: Int
+      cx*: Int
+      y*: Int
+      x*: Int
+      style*: Long
+      lpszName*: Lpcwstr
+      lpszClass*: Lpcwstr
+      dwExStyle*: Dword
 
-  MinMaxInfo* {.importc: "MINMAXINFO", header: "windows.h", bycopy.} = object
-    ptReserved*: Point
-    ptMaxSize*: Point
-    ptMaxPosition*: Point
-    ptMinTrackSize*: Point
-    ptMaxTrackSize*: Point
+    MinMaxInfo* {.importc: "MINMAXINFO", header: "windows.h",
+        bycopy.} = object
+      ptReserved*: Point
+      ptMaxSize*: Point
+      ptMaxPosition*: Point
+      ptMinTrackSize*: Point
+      ptMaxTrackSize*: Point
 
-  Accel* {.importc: "ACCEL", header: "windows.h", bycopy.} = object
-    fVirt*: Byte
-    key*: Word
-    cmd*: Word
+    Accel* {.importc: "ACCEL", header: "windows.h", bycopy.} = object
+      fVirt*: Byte
+      key*: Word
+      cmd*: Word
+else:
+  type
+    Point* = object
+      x*: Long
+      y*: Long
+
+    Size* = object
+      cx*: Long
+      cy*: Long
+
+    Rect* = object
+      left*: Long
+      top*: Long
+      right*: Long
+      bottom*: Long
+
+    Msg* = object
+      hwnd*: Hwnd
+      message*: Uint
+      wParam*: Wparam
+      lParam*: Lparam
+      time*: Dword
+      pt*: Point
+
+    WndClassExW* = object
+      cbSize*: Uint
+      style*: Uint
+      lpfnWndProc*: WndProc
+      cbClsExtra*: Int
+      cbWndExtra*: Int
+      hInstance*: Hinstance
+      hIcon*: Hicon
+      hCursor*: Hcursor
+      hbrBackground*: Hbrush
+      lpszMenuName*: Lpcwstr
+      lpszClassName*: Lpcwstr
+      hIconSm*: Hicon
+
+    CreateStructW* = object
+      lpCreateParams*: pointer
+      hInstance*: Hinstance
+      hMenu*: Hmenu
+      hwndParent*: Hwnd
+      cy*: Int
+      cx*: Int
+      y*: Int
+      x*: Int
+      style*: Long
+      lpszName*: Lpcwstr
+      lpszClass*: Lpcwstr
+      dwExStyle*: Dword
+
+    MinMaxInfo* = object
+      ptReserved*: Point
+      ptMaxSize*: Point
+      ptMaxPosition*: Point
+      ptMinTrackSize*: Point
+      ptMaxTrackSize*: Point
+
+    Accel* = object
+      fVirt*: Byte
+      key*: Word
+      cmd*: Word
 
 const
   winFalse* = Bool(0)
