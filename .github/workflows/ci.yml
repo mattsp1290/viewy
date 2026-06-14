@@ -157,6 +157,10 @@ jobs:
         if: runner.os == 'Linux'
         run: nim c --hints:off --mm:orc --threads:on --path:src -r tests/native/test_linux_appindicator.nim
 
+      - name: Check native Linux menu declarations
+        if: runner.os == 'Linux'
+        run: nim check --hints:off --mm:orc --threads:on -d:nimcheck --path:src tests/native/test_linux_menu.nim
+
       - name: Check native macOS glue
         if: runner.os == 'macOS'
         run: nim c --hints:off --mm:orc --threads:on -r tests/native/test_darwin_glue.nim

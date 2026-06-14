@@ -44,7 +44,7 @@ doAssert backend.dispatchTerminate != nil
           """
 import viewy/backend/api
 static:
-  doAssert selectedBackendCaps == {capScheme, capTray, capWindowVisibility}
+  doAssert selectedBackendCaps == {capScheme, capMenu, capTray, capWindowVisibility}
 """, "--os:linux -d:viewyBackend=native")
       checkpoint output
       check exitCode == 0

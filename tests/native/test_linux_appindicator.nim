@@ -8,7 +8,8 @@ else:
 
   doAssert appIndicatorStatusPassive == 0
   doAssert appIndicatorStatusActive == 1
-  doAssert selectedBackendCaps == {capScheme, capTray, capWindowVisibility}
+  doAssert selectedBackendCaps == {capScheme, capMenu, capTray,
+      capWindowVisibility}
 
   let nativeBackend = newBackend()
   if appIndicatorAvailable():

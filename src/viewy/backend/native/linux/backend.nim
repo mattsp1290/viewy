@@ -7,6 +7,7 @@
 import std/[locks, strutils, uri]
 
 import ../../api
+import ../../../menu
 import ./appindicator
 import ./webkitgtk_ffi
 
@@ -61,6 +62,9 @@ type
     bindings: seq[Binding]
     schemes: seq[SchemeRegistration]
     trays: seq[TrayRegistration]
+    appMenuBar: ptr GtkWidget
+    appAccelGroup: ptr GtkAccelGroup
+    appMenuCommands: seq[MenuCommand]
     dispatches: seq[DispatchSlot]
     handlerConnected: bool
     handlerRegistered: bool
@@ -275,6 +279,21 @@ proc releaseMenuWidget(menu: ptr GtkWidget) =
     gtkWidgetDestroy(menu)
     gObjectUnref(cast[pointer](menu))
 
+proc clearAppMenu(state: LinuxState) =
+  if state.appMenuBar != nil:
+    if state.shared.box != nil:
+      gtkContainerRemove(cast[ptr GtkContainer](state.shared.box),
+          state.appMenuBar)
+    releaseMenuWidget(state.appMenuBar)
+    state.appMenuBar = nil
+  if state.appAccelGroup != nil:
+    if state.shared.window != nil:
+      gtkWindowRemoveAccelGroup(cast[ptr GtkWindow](state.shared.window),
+          state.appAccelGroup)
+    gObjectUnref(cast[pointer](state.appAccelGroup))
+    state.appAccelGroup = nil
+  state.appMenuCommands.setLen(0)
+
 proc releaseTrayResources(tray: TrayRegistration) =
   if tray.indicator != nil:
     let api = loadAppIndicator()
@@ -312,6 +331,7 @@ proc closeFromUiThread(state: LinuxState) =
     webkitUserContentManagerUnregisterScriptMessageHandler(manager,
         nativeHandlerName)
     state.handlerRegistered = false
+  state.clearAppMenu()
   for tray in state.trays:
     tray.releaseTrayResources()
   state.trays.setLen(0)
@@ -983,11 +1003,66 @@ proc menuLabel(item: MenuItem): string =
   else:
     item.id
 
-proc appendMenuItems(tray: TrayRegistration; menu: ptr GtkWidget;
-    items: openArray[MenuItem])
+proc gtkKeyName(key: string): string =
+  case key
+  of "Enter": "Return"
+  of "Space": "space"
+  of "Backspace": "BackSpace"
+  of "PageUp": "Page_Up"
+  of "PageDown": "Page_Down"
+  of "Plus": "plus"
+  of "Minus": "minus"
+  of "Comma": "comma"
+  of "Period": "period"
+  of "Slash": "slash"
+  of "Backslash": "backslash"
+  of "Semicolon": "semicolon"
+  of "Quote": "apostrophe"
+  of "BracketLeft": "bracketleft"
+  of "BracketRight": "bracketright"
+  of "Equal": "equal"
+  of "Grave": "grave"
+  else: key
 
-proc appendMenuItem(tray: TrayRegistration; menu: ptr GtkWidget;
-    item: MenuItem; radioGroup: var ptr GSList) =
+proc gtkAccelerator(value: string): string =
+  let accelerator = parseAccelerator(value, apLinux)
+  if amCtrl in accelerator.modifiers:
+    result.add "<Control>"
+  if amShift in accelerator.modifiers:
+    result.add "<Shift>"
+  if amAlt in accelerator.modifiers:
+    result.add "<Alt>"
+  if amSuper in accelerator.modifiers:
+    result.add "<Super>"
+  result.add accelerator.key.gtkKeyName
+
+proc addAccelerator(widget: ptr GtkWidget; accelGroup: ptr GtkAccelGroup;
+    item: MenuItem) =
+  if accelGroup == nil or item.accelerator.len == 0:
+    return
+  var
+    accelKey: cuint
+    accelMods: cint
+  try:
+    let value = item.accelerator.gtkAccelerator
+    gtkAcceleratorParse(value.cstring, addr accelKey, addr accelMods)
+  except AcceleratorParseError as e:
+    raise newException(LinuxBackendError,
+        "native Linux menu accelerator failed: " & e.msg)
+  if accelKey == 0:
+    raise newException(LinuxBackendError,
+        "native Linux menu accelerator failed: unsupported key " &
+        item.accelerator)
+  gtkWidgetAddAccelerator(widget, "activate", accelGroup, accelKey, accelMods,
+      gtkAccelVisible)
+
+proc appendMenuItems(commands: var seq[MenuCommand]; cb: MenuCallback;
+    menu: ptr GtkWidget; items: openArray[MenuItem];
+    accelGroup: ptr GtkAccelGroup)
+
+proc appendMenuItem(commands: var seq[MenuCommand]; cb: MenuCallback;
+    menu: ptr GtkWidget; item: MenuItem; radioGroup: var ptr GSList;
+    accelGroup: ptr GtkAccelGroup) =
   var widget: ptr GtkWidget
   case item.kind
   of miSeparator:
@@ -1004,7 +1079,7 @@ proc appendMenuItem(tray: TrayRegistration; menu: ptr GtkWidget;
           "native Linux tray menu create failed")
     var attached = false
     try:
-      tray.appendMenuItems(submenu, item.children)
+      commands.appendMenuItems(cb, submenu, item.children, accelGroup)
       gtkMenuItemSetSubmenu(cast[ptr GtkMenuItem](widget), submenu)
       attached = true
     except CatchableError:
@@ -1031,16 +1106,18 @@ proc appendMenuItem(tray: TrayRegistration; menu: ptr GtkWidget;
   gtkMenuShellAppend(menu, widget)
 
   if item.kind in {miCommand, miCheckbox, miRadio}:
-    let command = MenuCommand(id: item.id, cb: tray.cb)
-    tray.commands.add command
+    let command = MenuCommand(id: item.id, cb: cb)
+    commands.add command
     discard gSignalConnectData(widget, "activate", cast[pointer](
         menuCommandCb), cast[pointer](command), nil, gConnectDefault)
+    widget.addAccelerator(accelGroup, item)
 
-proc appendMenuItems(tray: TrayRegistration; menu: ptr GtkWidget;
-    items: openArray[MenuItem]) =
+proc appendMenuItems(commands: var seq[MenuCommand]; cb: MenuCallback;
+    menu: ptr GtkWidget; items: openArray[MenuItem];
+    accelGroup: ptr GtkAccelGroup) =
   var radioGroup: ptr GSList
   for item in items:
-    tray.appendMenuItem(menu, item, radioGroup)
+    commands.appendMenuItem(cb, menu, item, radioGroup, accelGroup)
 
 proc buildTrayMenu(tray: TrayRegistration;
     items: openArray[MenuItem]): ptr GtkWidget =
@@ -1050,12 +1127,70 @@ proc buildTrayMenu(tray: TrayRegistration;
         "native Linux tray menu create failed")
   discard gObjectRefSink(cast[pointer](result))
   try:
-    tray.appendMenuItems(result, items)
+    tray.commands.appendMenuItems(tray.cb, result, items, nil)
     gtkWidgetShowAll(result)
   except CatchableError:
     releaseMenuWidget(result)
     result = nil
     tray.commands.setLen(0)
+    raise
+
+proc buildAppMenuBar(commands: var seq[MenuCommand]; cb: MenuCallback;
+    items: openArray[MenuItem]; accelGroup: ptr GtkAccelGroup): ptr GtkWidget =
+  result = gtkMenuBarNew()
+  if result == nil:
+    raise newException(LinuxBackendError,
+        "native Linux app menu create failed")
+  discard gObjectRefSink(cast[pointer](result))
+  try:
+    commands.appendMenuItems(cb, result, items, accelGroup)
+    gtkWidgetShowAll(result)
+  except CatchableError:
+    releaseMenuWidget(result)
+    result = nil
+    commands.setLen(0)
+    raise
+
+proc setAppMenu(h: BackendHandle; menu: seq[MenuItem]; cb: MenuCallback) =
+  let state = h.toState
+  state.assertUiThread
+  state.requireOpen("native Linux set app menu")
+  if cb.isNil:
+    raise newException(LinuxBackendError,
+        "native Linux set app menu failed: nil callback")
+
+  var
+    commands: seq[MenuCommand] = @[]
+    menuBar: ptr GtkWidget
+    accelGroup: ptr GtkAccelGroup
+  try:
+    if menu.len > 0:
+      accelGroup = gtkAccelGroupNew()
+      if accelGroup == nil:
+        raise newException(LinuxBackendError,
+            "native Linux app menu accelerator group create failed")
+      menuBar = buildAppMenuBar(commands, cb, menu, accelGroup)
+      gtkWindowAddAccelGroup(cast[ptr GtkWindow](state.shared.window),
+          accelGroup)
+      gtkBoxPackStart(cast[ptr GtkBox](state.shared.box), menuBar, gFalse,
+          gFalse, 0)
+      gtkBoxReorderChild(cast[ptr GtkBox](state.shared.box), menuBar, 0)
+
+    state.clearAppMenu()
+    state.appMenuBar = menuBar
+    state.appAccelGroup = accelGroup
+    state.appMenuCommands = commands
+    menuBar = nil
+    accelGroup = nil
+    if state.shared.windowVisible:
+      gtkWidgetShowAll(state.shared.window)
+  except CatchableError:
+    if menuBar != nil:
+      releaseMenuWidget(menuBar)
+    if accelGroup != nil:
+      gtkWindowRemoveAccelGroup(cast[ptr GtkWindow](state.shared.window),
+          accelGroup)
+      gObjectUnref(cast[pointer](accelGroup))
     raise
 
 proc trayCreate(h: BackendHandle; options: TrayOptions; cb: MenuCallback) =
@@ -1163,7 +1298,7 @@ proc trayDestroy(h: BackendHandle; id: string) =
   state.removeTray(id)
 
 proc newBackend*(): Backend =
-  var caps = {capScheme, capWindowVisibility}
+  var caps = {capScheme, capMenu, capWindowVisibility}
   let trayAvailable = appIndicatorAvailable()
   if trayAvailable:
     caps.incl capTray
@@ -1187,6 +1322,7 @@ proc newBackend*(): Backend =
     resolve: resolve,
     caps: caps,
     registerSchemeImpl: registerScheme,
+    setAppMenuImpl: setAppMenu,
     showWindowImpl: showNativeWindow,
     hideWindowImpl: hideNativeWindow,
   )

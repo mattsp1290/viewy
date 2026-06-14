@@ -35,6 +35,7 @@ Compile-only platform FFI/glue checks. They skip or are CI-gated off-platform.
 - `native/test_darwin_backend.nim`
 - `native/test_linux_appindicator.nim`
 - `native/test_linux_gtk_ffi.nim`
+- `native/test_linux_menu.nim`
 - `native/test_linux_webkitgtk_ffi.nim`
 - `native/test_windows_com.nim`
 - `native/test_windows_ipc.nim`

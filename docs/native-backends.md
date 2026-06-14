@@ -25,7 +25,7 @@ on operating system names.
 | Backend selection | Platform | Capabilities |
 | --- | --- | --- |
 | `-d:viewyBackend=lite` | all supported platforms | none |
-| `-d:viewyBackend=native` | Linux | `capScheme`, `capWindowVisibility`, `capTray` selected at compile time; runtime `caps` includes `capTray` only when AppIndicator loads |
+| `-d:viewyBackend=native` | Linux | `capScheme`, `capMenu`, `capWindowVisibility`, `capTray` selected at compile time; runtime `caps` includes `capTray` only when AppIndicator loads |
 | `-d:viewyBackend=native` | macOS | `capScheme`, `capMenu`, `capTray`, `capWindowEvents`, `capWindowVisibility` |
 | `-d:viewyBackend=native` | Windows | `capScheme`, `capMenu`, `capTray`, `capWindowVisibility` |
 | `-d:viewyBackend=native` | unsupported platforms | none; backend construction fails at compile time |
@@ -141,17 +141,21 @@ The Linux native backend is a direct GTK/WebKitGTK implementation under
   `libappindicator3` at runtime for tray support. It does not add a compile- or
   link-time dependency on AppIndicator headers or development packages.
 - `backend.nim` owns the GTK window, WebKit webview, JavaScript bindings,
-  typed handoff payloads, `capScheme` registration, and AppIndicator tray
-  registrations.
+  typed handoff payloads, `capScheme` registration, per-window GTK menu bars,
+  and AppIndicator tray registrations.
 
-Linux `selectedBackendCaps` includes `capTray` so Linux-native apps can compile
-tray calls. The runtime backend advertises `capTray` only when the AppIndicator
-shared library can be loaded. If it is absent, tray vtable slots remain nil and
-the backend capability check fails before tray creation. GNOME sessions still
-need a StatusNotifier/AppIndicator extension or equivalent tray host for the
-icon to be visible. Linux also supports `capWindowVisibility` via GTK
-show/hide calls, including start-hidden apps that call `hideWindow` before
-entering the GTK main loop.
+Linux `selectedBackendCaps` includes `capMenu` and `capTray` so Linux-native
+apps can compile menu and tray calls. `capMenu` is always advertised by the
+runtime backend and maps `setAppMenu` to a GTK menu bar packed above the
+WebKitGTK view. Menu commands dispatch by `MenuItem.id`, and accelerators use
+the shared accelerator parser with Linux/GTK key names. The runtime backend
+advertises `capTray` only when the AppIndicator shared library can be loaded. If
+it is absent, tray vtable slots remain nil and the backend capability check
+fails before tray creation. GNOME sessions still need a
+StatusNotifier/AppIndicator extension or equivalent tray host for the icon to be
+visible. Linux also supports `capWindowVisibility` via GTK show/hide calls,
+including start-hidden apps that call `hideWindow` before entering the GTK main
+loop.
 
 ### macOS
 
@@ -277,10 +281,10 @@ objects must not cross those thread boundaries directly.
 Selected backend capability gates are also part of the contract. Current gates:
 
 - `-d:viewyBackend=lite` advertises no native capabilities.
-- `-d:viewyBackend=native` on Linux advertises `capScheme`, `capTray`, and
-  `capWindowVisibility` at compile time. Runtime `newBackend().caps` includes
-  `capTray` only when `libayatana-appindicator3` or legacy `libappindicator3`
-  can be loaded.
+- `-d:viewyBackend=native` on Linux advertises `capScheme`, `capMenu`,
+  `capTray`, and `capWindowVisibility` at compile time. Runtime
+  `newBackend().caps` includes `capMenu` always and `capTray` only when
+  `libayatana-appindicator3` or legacy `libappindicator3` can be loaded.
 - `-d:viewyBackend=native` on macOS advertises `capScheme`, `capMenu`,
   `capTray`, `capWindowEvents`, and `capWindowVisibility`.
 - `-d:viewyBackend=native` on Windows advertises `capScheme`, `capMenu`,

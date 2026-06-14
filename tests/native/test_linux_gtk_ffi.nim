@@ -27,6 +27,19 @@ else:
   doAssert gFalse == 0
   doAssert gTrue == 1
 
+  proc assertAcceleratorParses(value: string) =
+    var
+      accelKey: cuint
+      accelMods: cint
+    gtkAcceleratorParse(value.cstring, addr accelKey, addr accelMods)
+    doAssert accelKey != 0
+
+  assertAcceleratorParses("<Control>N")
+  assertAcceleratorParses("<Control>plus")
+  assertAcceleratorParses("<Alt>F4")
+  assertAcceleratorParses("<Control><Shift>slash")
+  assertAcceleratorParses("<Super>Return")
+
   when false:
     var
       argc: cint
@@ -48,6 +61,9 @@ else:
     discard gtkInitCheck(addr argc, addr argv)
     gtkAcceleratorParse("Ctrl+Q", addr accelKey, addr accelMods)
     gtkWindowAddAccelGroup(window, accelGroup)
+    gtkWindowRemoveAccelGroup(window, accelGroup)
+    gtkBoxReorderChild(cast[ptr GtkBox](gtkBoxNew(gtkOrientationVertical, 0)),
+      menuItem, 0)
     gtkWidgetAddAccelerator(menuItem, "activate", accelGroup, accelKey,
       accelMods, gtkAccelVisible)
     discard gSignalConnectData(windowWidget, "delete-event", cast[pointer](

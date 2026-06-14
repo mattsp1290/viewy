@@ -178,6 +178,9 @@ proc gtkBoxPackStart*(box: ptr GtkBox; child: ptr GtkWidget; expand,
     fill: GBoolean; padding: cuint)
   {.importc: "gtk_box_pack_start", header: "gtk/gtk.h", cdecl.}
 
+proc gtkBoxReorderChild*(box: ptr GtkBox; child: ptr GtkWidget; position: cint)
+  {.importc: "gtk_box_reorder_child", header: "gtk/gtk.h", cdecl.}
+
 proc gtkCheckMenuItemGetActive*(checkMenuItem: ptr GtkCheckMenuItem): GBoolean
   {.importc: "gtk_check_menu_item_get_active", header: "gtk/gtk.h", cdecl.}
 
@@ -304,6 +307,10 @@ proc gtkWindowPresent*(window: ptr GtkWindow)
 
 proc gtkWindowResize*(window: ptr GtkWindow; width, height: cint)
   {.importc: "gtk_window_resize", header: "gtk/gtk.h", cdecl.}
+
+proc gtkWindowRemoveAccelGroup*(window: ptr GtkWindow;
+    accelGroup: ptr GtkAccelGroup)
+  {.importc: "gtk_window_remove_accel_group", header: "gtk/gtk.h", cdecl.}
 
 proc gtkWindowSetDefaultSize*(window: ptr GtkWindow; width, height: cint)
   {.importc: "gtk_window_set_default_size", header: "gtk/gtk.h", cdecl.}

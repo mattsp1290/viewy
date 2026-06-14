@@ -28,6 +28,8 @@ else:
   doAssert nativeBackend.resolve != nil
   doAssert nativeBackend.registerSchemeImpl != nil
   doAssert capScheme in nativeBackend.caps
+  doAssert capMenu in nativeBackend.caps
+  doAssert nativeBackend.setAppMenuImpl != nil
   doAssert capWindowVisibility in nativeBackend.caps
   doAssert nativeBackend.showWindowImpl != nil
   doAssert nativeBackend.hideWindowImpl != nil
@@ -53,6 +55,23 @@ else:
       discard id
       discard jsonArgs)
     nativeBackend.resolve(handle, "1", true, "\"ok\"")
+    nativeBackend.setAppMenuImpl(handle, @[
+      MenuItem(
+        id: "file",
+        label: "File",
+        kind: miSubmenu,
+        enabled: true,
+        children: @[
+          MenuItem(id: "open", label: "Open", accelerator: "CmdOrCtrl+O",
+            kind: miCommand, enabled: true),
+          MenuItem(id: "toggle", label: "Toggle", kind: miCheckbox,
+            enabled: true, checked: true),
+          MenuItem(kind: miSeparator),
+          MenuItem(id: "quit", label: "Quit", accelerator: "Alt+F4",
+            kind: miCommand, enabled: true),
+      ],
+    )
+    ], proc(id: string) {.gcsafe.} = discard id)
     nativeBackend.dispatchEval(handle, "globalThis.viewyEval = true")
     nativeBackend.dispatchResolve(handle, "2", false,
       """{"error":{"message":"ValueError","type":"ValueError"}}""")
