@@ -25,10 +25,10 @@ else:
   doAssert nativeBackend.bindFn != nil
   doAssert nativeBackend.unbind != nil
   doAssert nativeBackend.resolve != nil
-  doAssert nativeBackend.caps == {capScheme, capTray, capWindowEvents}
+  doAssert nativeBackend.caps == {capScheme, capMenu, capTray, capWindowEvents}
   doAssert nativeBackend.onWindowEventImpl != nil
   doAssert nativeBackend.registerSchemeImpl != nil
-  doAssert nativeBackend.setAppMenuImpl == nil
+  doAssert nativeBackend.setAppMenuImpl != nil
   doAssert nativeBackend.trayCreateImpl != nil
   doAssert nativeBackend.trayUpdateImpl != nil
   doAssert nativeBackend.trayDestroyImpl != nil
@@ -46,6 +46,22 @@ else:
     nativeBackend.setTitle(h, "Viewy Darwin native smoke")
     nativeBackend.setSize(h, 320, 240, whMin)
     nativeBackend.setHtml(h, "<!doctype html><p>viewy native macOS</p>")
+    nativeBackend.setAppMenu(h, @[MenuItem(
+      id: "app",
+      label: "App",
+      kind: miSubmenu,
+      enabled: true,
+      children: @[MenuItem(id: "quit", label: "Quit",
+        accelerator: "CmdOrCtrl+Q", kind: miCommand, enabled: true)]
+    )], proc(id: string) {.gcsafe.} =
+      discard id
+    )
+    doAssertRaises(DarwinBackendError):
+      nativeBackend.setAppMenu(h, @[MenuItem(id: "bad", label: "Bad",
+        accelerator: "CmdOrCtrl+UnknownKey", kind: miCommand,
+        enabled: true)], proc(id: string) {.gcsafe.} =
+        discard id
+      )
     nativeBackend.trayCreate(h, TrayOptions(
       id: "main",
       tooltip: "Viewy",

@@ -92,6 +92,10 @@ else:
   proc viewyDarwinTrayDestroy(app: ptr ViewyDarwinApp; id: cstring) {.
       importc: "viewy_darwin_tray_destroy",
       header: "../../src/viewy/backend/native/darwin/glue.h".}
+  proc viewyDarwinTestMenuItemAcceleratorFlags(app: ptr ViewyDarwinApp;
+      id, keyEquivalent: cstring; modifierMask: int64): int32 {.
+      importc: "viewy_darwin_test_menu_item_accelerator_flags",
+      header: "../../src/viewy/backend/native/darwin/glue.h".}
 
   proc dispatchCallback(userdata: pointer) {.cdecl.} =
     discard userdata
@@ -134,6 +138,7 @@ else:
   doAssert declared(viewyDarwinTrayCreate)
   doAssert declared(viewyDarwinTrayUpdate)
   doAssert declared(viewyDarwinTrayDestroy)
+  doAssert declared(viewyDarwinTestMenuItemAcceleratorFlags)
 
   viewyDarwinAppDestroy(nil)
   viewyDarwinAppStop(nil)
@@ -153,5 +158,42 @@ else:
   doAssert viewyDarwinTrayCreate(nil, "{}", menuCallback, nil) == 0
   viewyDarwinTrayUpdate(nil, "main", "{}")
   viewyDarwinTrayDestroy(nil, "main")
+  doAssert viewyDarwinTestMenuItemAcceleratorFlags(nil, "quit", "q", 1) == 0
+
+  const
+    nsControl = 1'i64 shl 18
+    nsShift = 1'i64 shl 17
+    nsOption = 1'i64 shl 19
+    nsCommand = 1'i64 shl 20
+    nsF12 = "\uF70F"
+
+  let app = viewyDarwinAppCreate()
+  doAssert app != nil
+  let jsonMenu = """
+[
+  {
+    "id":"",
+    "label":"App",
+    "kind":"submenu",
+    "enabled":true,
+    "children":[
+      {"id":"quit","label":"Quit","kind":"command","enabled":true,"keyEquivalent":"Q","modifierFlags":["super"]},
+      {"id":"power","label":"Power","kind":"command","enabled":true,"keyEquivalent":"P","modifierFlags":["ctrl","shift","alt"]},
+      {"id":"help","label":"Help","kind":"command","enabled":true,"keyEquivalent":"F12","modifierFlags":["super"]},
+      {"id":"slash","label":"Slash","kind":"command","enabled":true,"keyEquivalent":"Slash","modifierFlags":["super"]}
+    ]
+  }
+]
+"""
+  doAssert viewyDarwinSetAppMenu(app, jsonMenu.cstring, menuCallback, nil) == 1
+  doAssert viewyDarwinTestMenuItemAcceleratorFlags(app, "quit", "q",
+      nsCommand) == 7
+  doAssert viewyDarwinTestMenuItemAcceleratorFlags(app, "power", "p",
+      nsControl or nsShift or nsOption) == 7
+  doAssert viewyDarwinTestMenuItemAcceleratorFlags(app, "help", nsF12,
+      nsCommand) == 7
+  doAssert viewyDarwinTestMenuItemAcceleratorFlags(app, "slash", "/",
+      nsCommand) == 7
+  viewyDarwinAppDestroy(app)
 
   echo "ok: darwin native glue declarations"

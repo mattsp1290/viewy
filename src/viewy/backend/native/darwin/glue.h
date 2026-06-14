@@ -79,6 +79,11 @@ void viewy_darwin_tray_update(ViewyDarwinApp *app, const char *tray_id,
                               const char *json_options);
 void viewy_darwin_tray_destroy(ViewyDarwinApp *app, const char *tray_id);
 
+int32_t viewy_darwin_test_menu_item_accelerator_flags(ViewyDarwinApp *app,
+                                                      const char *item_id,
+                                                      const char *key_equivalent,
+                                                      int64_t modifier_mask);
+
 #ifdef __cplusplus
 }
 #endif

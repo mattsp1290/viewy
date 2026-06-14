@@ -52,7 +52,7 @@ static:
       let (output, exitCode) = nimCheck("""
 import viewy/backend/api
 static:
-  doAssert selectedBackendCaps == {capScheme, capTray, capWindowEvents}
+  doAssert selectedBackendCaps == {capScheme, capMenu, capTray, capWindowEvents}
 """, "--os:macosx -d:viewyBackend=native")
       checkpoint output
       check exitCode == 0

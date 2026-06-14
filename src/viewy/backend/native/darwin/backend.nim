@@ -3,6 +3,7 @@
 import std/[locks, os, strutils]
 
 import ../../api
+import ../../../menu
 
 import jsony
 import zippy
@@ -52,6 +53,7 @@ type
     dispatches: seq[DispatchSlot]
     handlerRegistered: bool
     eventCallback: WindowEventCallback
+    menuCallback: MenuCallback
 
   Binding = ref object
     name: string
@@ -73,6 +75,8 @@ type
     id: string
     label: string
     accelerator: string
+    keyEquivalent: string
+    modifierFlags: seq[string]
     kind: string
     enabled: bool
     checked: bool
@@ -155,6 +159,9 @@ proc viewyDarwinRegisterScheme(window: ptr ViewyDarwinWindow; scheme: cstring;
 proc viewyDarwinSchemeFinish(request: pointer; status: int32; statusText,
     mimeType, headersJson: cstring; body: pointer; bodyLen: int64) {.
     importc: "viewy_darwin_scheme_finish", header: "glue.h".}
+proc viewyDarwinSetAppMenu(app: ptr ViewyDarwinApp; jsonMenu: cstring;
+    callback: DarwinMenuCallback; userdata: pointer): int32 {.
+    importc: "viewy_darwin_set_app_menu", header: "glue.h".}
 proc viewyDarwinTrayCreate(app: ptr ViewyDarwinApp; jsonOptions: cstring;
     callback: DarwinMenuCallback; userdata: pointer): int32 {.
     importc: "viewy_darwin_tray_create", header: "glue.h".}
@@ -236,11 +243,35 @@ proc menuKindName(kind: MenuItemKind): string =
   of miCheckbox: "checkbox"
   of miRadio: "radio"
 
+proc modifierName(modifier: AcceleratorModifier): string =
+  case modifier
+  of amCtrl: "ctrl"
+  of amShift: "shift"
+  of amAlt: "alt"
+  of amSuper: "super"
+
+proc modifierNames(modifiers: set[AcceleratorModifier]): seq[string] =
+  for modifier in AcceleratorModifier:
+    if modifier in modifiers:
+      result.add modifier.modifierName
+
 proc menuItemJson(item: MenuItem): MenuItemJson =
+  var keyEquivalent = ""
+  var modifierFlags: seq[string] = @[]
+  if item.accelerator.len > 0:
+    try:
+      let accelerator = parseAccelerator(item.accelerator, apMacOS)
+      keyEquivalent = accelerator.key
+      modifierFlags = accelerator.modifiers.modifierNames
+    except AcceleratorParseError as e:
+      raise newException(DarwinBackendError,
+          "native macOS menu accelerator failed: " & e.msg)
   result = MenuItemJson(
     id: item.id,
     label: item.label,
     accelerator: item.accelerator,
+    keyEquivalent: keyEquivalent,
+    modifierFlags: modifierFlags,
     kind: item.kind.menuKindName,
     enabled: item.enabled,
     checked: item.checked,
@@ -453,6 +484,14 @@ proc eventCb(userdata: pointer; kind, width, height: int32) {.cdecl, gcsafe.} =
   state.eventCallback(WindowEvent(kind: eventKind, width: width,
       height: height))
 
+proc menuCb(userdata: pointer; id: ConstCString) {.cdecl, gcsafe.} =
+  let state = cast[DarwinState](userdata)
+  if state == nil or state.shared == nil or state.shared.closed:
+    return
+  if state.menuCallback.isNil:
+    return
+  state.menuCallback(id.cstringToString)
+
 proc trayCb(userdata: pointer; id: ConstCString) {.cdecl, gcsafe.} =
   let registration = cast[TrayRegistration](userdata)
   if registration == nil or registration.cb.isNil:
@@ -553,6 +592,7 @@ proc destroy(h: BackendHandle) =
   state.trays.setLen(0)
   state.dispatches.setLen(0)
   state.eventCallback = nil
+  state.menuCallback = nil
   shared.owner = nil
   GC_unref(state)
   # SharedState intentionally remains allocated after destroy. BackendHandle is an
@@ -688,6 +728,18 @@ proc resolve(h: BackendHandle; id: string; ok: bool; jsonResult: string) =
 proc onWindowEvent(h: BackendHandle; cb: WindowEventCallback) =
   h.toState.eventCallback = cb
 
+proc setAppMenu(h: BackendHandle; menu: seq[MenuItem]; cb: MenuCallback) =
+  let state = h.toState
+  state.assertUiThread
+  if cb.isNil:
+    raise newException(DarwinBackendError,
+        "native macOS set app menu failed: nil callback")
+  let payload = menu.menuItemsJson.toJson()
+  if viewyDarwinSetAppMenu(state.shared.app, payload.cstring, menuCb,
+      cast[pointer](state)) == 0:
+    raise newException(DarwinBackendError, "viewy_darwin_set_app_menu failed")
+  state.menuCallback = cb
+
 proc trayCreate(h: BackendHandle; options: TrayOptions; cb: MenuCallback) =
   let state = h.toState
   state.assertUiThread
@@ -744,8 +796,9 @@ proc newBackend*(): Backend =
     bindFn: bindFn,
     unbind: unbind,
     resolve: resolve,
-    caps: {capScheme, capTray, capWindowEvents},
+    caps: {capScheme, capMenu, capTray, capWindowEvents},
     registerSchemeImpl: registerScheme,
+    setAppMenuImpl: setAppMenu,
     trayCreateImpl: trayCreate,
     trayUpdateImpl: trayUpdate,
     trayDestroyImpl: trayDestroy,
