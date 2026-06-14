@@ -10,6 +10,7 @@ static const NSUInteger ViewyMaxSchemeBodyBytes = 10 * 1024 * 1024;
 @interface ViewyDarwinAppBox : NSObject
 @property(nonatomic, assign) ViewyDarwinMenuCallback menuCallback;
 @property(nonatomic, assign) void *menuUserdata;
+@property(nonatomic, strong) NSMenu *mainMenu;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSStatusItem *> *statusItems;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, ViewyDarwinMenuTarget *> *statusTargets;
 @end
@@ -292,26 +293,118 @@ static BOOL ViewyDictBool(NSDictionary *dict, NSString *key, BOOL fallback) {
                                                          : fallback;
 }
 
+static NSString *ViewyMenuKeyEquivalent(NSString *key) {
+  if (key.length == 0) {
+    return @"";
+  }
+  if (key.length == 1) {
+    return key.lowercaseString;
+  }
+  NSDictionary<NSString *, NSString *> *punctuation = @{
+    @"Plus" : @"+",
+    @"Minus" : @"-",
+    @"Comma" : @",",
+    @"Period" : @".",
+    @"Slash" : @"/",
+    @"Backslash" : @"\\",
+    @"Semicolon" : @";",
+    @"Quote" : @"'",
+    @"BracketLeft" : @"[",
+    @"BracketRight" : @"]",
+    @"Equal" : @"=",
+    @"Grave" : @"`",
+    @"Space" : @" "
+  };
+  NSString *mapped = punctuation[key];
+  if (mapped) {
+    return mapped;
+  }
+
+  unichar ch = 0;
+  if ([key isEqualToString:@"Enter"]) {
+    ch = NSCarriageReturnCharacter;
+  } else if ([key isEqualToString:@"Escape"]) {
+    ch = 0x1B;
+  } else if ([key isEqualToString:@"Tab"]) {
+    ch = NSTabCharacter;
+  } else if ([key isEqualToString:@"Backspace"]) {
+    ch = NSBackspaceCharacter;
+  } else if ([key isEqualToString:@"Delete"]) {
+    ch = NSDeleteCharacter;
+  } else if ([key isEqualToString:@"Insert"]) {
+    ch = NSInsertFunctionKey;
+  } else if ([key isEqualToString:@"Home"]) {
+    ch = NSHomeFunctionKey;
+  } else if ([key isEqualToString:@"End"]) {
+    ch = NSEndFunctionKey;
+  } else if ([key isEqualToString:@"PageUp"]) {
+    ch = NSPageUpFunctionKey;
+  } else if ([key isEqualToString:@"PageDown"]) {
+    ch = NSPageDownFunctionKey;
+  } else if ([key isEqualToString:@"Up"]) {
+    ch = NSUpArrowFunctionKey;
+  } else if ([key isEqualToString:@"Down"]) {
+    ch = NSDownArrowFunctionKey;
+  } else if ([key isEqualToString:@"Left"]) {
+    ch = NSLeftArrowFunctionKey;
+  } else if ([key isEqualToString:@"Right"]) {
+    ch = NSRightArrowFunctionKey;
+  } else if ([key hasPrefix:@"F"]) {
+    NSInteger n = [key substringFromIndex:1].integerValue;
+    if (n >= 1 && n <= 24) {
+      ch = NSF1FunctionKey + (unichar)(n - 1);
+    }
+  }
+
+  if (ch != 0) {
+    return [NSString stringWithCharacters:&ch length:1];
+  }
+  return @"";
+}
+
+static NSEventModifierFlags ViewyMenuModifierFlags(NSArray *flags) {
+  NSEventModifierFlags result = 0;
+  if (![flags isKindOfClass:[NSArray class]]) {
+    return result;
+  }
+  for (id raw in flags) {
+    if (![raw isKindOfClass:[NSString class]]) {
+      continue;
+    }
+    NSString *flag = (NSString *)raw;
+    if ([flag isEqualToString:@"ctrl"]) {
+      result |= NSEventModifierFlagControl;
+    } else if ([flag isEqualToString:@"shift"]) {
+      result |= NSEventModifierFlagShift;
+    } else if ([flag isEqualToString:@"alt"]) {
+      result |= NSEventModifierFlagOption;
+    } else if ([flag isEqualToString:@"super"]) {
+      result |= NSEventModifierFlagCommand;
+    }
+  }
+  return result;
+}
+
 static NSInteger ViewyMenuKind(NSDictionary *dict) {
   id value = dict[@"kind"];
-  if ([value respondsToSelector:@selector(integerValue)]) {
-    return [value integerValue];
-  }
-  if (![value isKindOfClass:[NSString class]]) {
+  if ([value isKindOfClass:[NSString class]]) {
+    NSString *kind = (NSString *)value;
+    if ([kind isEqualToString:@"separator"]) {
+      return 1;
+    }
+    if ([kind isEqualToString:@"submenu"]) {
+      return 2;
+    }
+    if ([kind isEqualToString:@"checkbox"]) {
+      return 3;
+    }
+    if ([kind isEqualToString:@"radio"]) {
+      return 4;
+    }
     return 0;
   }
-  NSString *kind = (NSString *)value;
-  if ([kind isEqualToString:@"separator"]) {
-    return 1;
-  }
-  if ([kind isEqualToString:@"submenu"]) {
-    return 2;
-  }
-  if ([kind isEqualToString:@"checkbox"]) {
-    return 3;
-  }
-  if ([kind isEqualToString:@"radio"]) {
-    return 4;
+  if ([value respondsToSelector:@selector(integerValue)]) {
+    return [value integerValue];
   }
   return 0;
 }
@@ -334,6 +427,12 @@ static NSMenuItem *ViewyBuildMenuItem(NSDictionary *dict,
                                                 action:nil
                                          keyEquivalent:@""];
   item.enabled = ViewyDictBool(dict, @"enabled", YES);
+  NSString *keyEquivalent =
+      ViewyMenuKeyEquivalent(ViewyDictString(dict, @"keyEquivalent"));
+  if (keyEquivalent.length > 0) {
+    item.keyEquivalent = keyEquivalent;
+    item.keyEquivalentModifierMask = ViewyMenuModifierFlags(dict[@"modifierFlags"]);
+  }
 
   if (kind == 2) {
     id children = dict[@"children"];
@@ -344,6 +443,9 @@ static NSMenuItem *ViewyBuildMenuItem(NSDictionary *dict,
   }
 
   NSString *itemId = ViewyDictString(dict, @"id");
+  if (itemId.length > 0) {
+    item.identifier = itemId;
+  }
   if (itemId.length > 0 && callback) {
     ViewyDarwinMenuTarget *target = [ViewyDarwinMenuTarget new];
     target.itemId = itemId;
@@ -372,6 +474,29 @@ static NSMenu *ViewyBuildMenu(NSArray *items, ViewyDarwinMenuCallback callback,
     [menu addItem:ViewyBuildMenuItem(raw, callback, userdata, targets)];
   }
   return menu;
+}
+
+static NSMenuItem *ViewyFindMenuItem(NSMenu *menu, NSString *itemId) {
+  if (!menu || itemId.length == 0) {
+    return nil;
+  }
+  for (NSMenuItem *item in menu.itemArray) {
+    if ([item.identifier isEqualToString:itemId]) {
+      return item;
+    }
+    ViewyDarwinMenuTarget *target =
+        [item.representedObject isKindOfClass:[ViewyDarwinMenuTarget class]]
+            ? (ViewyDarwinMenuTarget *)item.representedObject
+            : nil;
+    if ([target.itemId isEqualToString:itemId]) {
+      return item;
+    }
+    NSMenuItem *nested = ViewyFindMenuItem(item.submenu, itemId);
+    if (nested) {
+      return nested;
+    }
+  }
+  return nil;
 }
 
 static WKWebViewConfiguration *ViewyBuildWebViewConfiguration(
@@ -445,6 +570,12 @@ void viewy_darwin_app_destroy(ViewyDarwinApp *app) {
     }
     [app->box.statusItems removeAllObjects];
     [app->box.statusTargets removeAllObjects];
+    if ([NSApplication sharedApplication].mainMenu == app->box.mainMenu) {
+      [NSApplication sharedApplication].mainMenu = [NSMenu new];
+    }
+    app->box.mainMenu = nil;
+    app->box.menuCallback = NULL;
+    app->box.menuUserdata = NULL;
     app->box = nil;
     free(app);
   }
@@ -748,6 +879,7 @@ int32_t viewy_darwin_set_app_menu(ViewyDarwinApp *app, const char *json_menu,
   NSMenu *menu = ViewyBuildMenu(raw, callback, userdata, targets);
   app->box.menuCallback = callback;
   app->box.menuUserdata = userdata;
+  app->box.mainMenu = menu;
   [NSApplication sharedApplication].mainMenu = menu;
   return 1;
 }
@@ -855,4 +987,29 @@ void viewy_darwin_tray_destroy(ViewyDarwinApp *app, const char *tray_id) {
   [[NSStatusBar systemStatusBar] removeStatusItem:item];
   [app->box.statusItems removeObjectForKey:itemId];
   [app->box.statusTargets removeObjectForKey:itemId];
+}
+
+int32_t viewy_darwin_test_menu_item_accelerator_flags(ViewyDarwinApp *app,
+                                                      const char *item_id,
+                                                      const char *key_equivalent,
+                                                      int64_t modifier_mask) {
+  if (!app || !item_id || !key_equivalent) {
+    return 0;
+  }
+  NSString *itemId = ViewyString(item_id);
+  NSMenuItem *item = ViewyFindMenuItem(app->box.mainMenu, itemId);
+  if (!item) {
+    return 0;
+  }
+  int32_t result = 1;
+  NSString *expectedKey = ViewyString(key_equivalent);
+  if ([item.keyEquivalent isEqualToString:expectedKey]) {
+    result |= 2;
+  }
+  if ((item.keyEquivalentModifierMask & NSEventModifierFlagDeviceIndependentFlagsMask) ==
+      ((NSEventModifierFlags)modifier_mask &
+       NSEventModifierFlagDeviceIndependentFlagsMask)) {
+    result |= 4;
+  }
+  return result;
 }
