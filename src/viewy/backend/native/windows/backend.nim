@@ -1,10 +1,10 @@
 ## Native Windows backend backed by Win32 and WebView2.
 ##
 ## This slice owns the core window, message loop, and WebView2
-## environment/controller lifecycle. Menus, tray, schemes, and RPC are wired by
+## environment/controller lifecycle, schemes, tray, and RPC. Menus are wired by
 ## later Windows backend slices.
 
-import std/[locks, os, strutils, uri]
+import std/[locks, os, strutils, unicode, uri]
 
 import ../../api
 import ../../windows_webview2_pin
@@ -61,6 +61,9 @@ type
     dispatches: seq[DispatchSlot]
     bindings: seq[Binding]
     schemes: seq[SchemeRegistration]
+    trays: seq[TrayRegistration]
+    nextTrayId: Uint
+    nextMenuCommandId: Uint
     webMessageHandler: ptr WebMessageHandler
     webMessageToken: EventRegistrationToken
     webResourceHandler: ptr WebResourceHandler
@@ -83,6 +86,23 @@ type
   Binding = ref object
     name: string
     cb: BindCallback
+
+  TrayMenuCommand = object
+    commandId: Uint
+    id: string
+
+  TrayRegistration = ref object
+    id: string
+    notifyId: Uint
+    tooltip: string
+    iconPath: string
+    templateIconPath: string
+    menu: seq[MenuItem]
+    cb: MenuCallback
+    hIcon: Hicon
+    ownsIcon: bool
+    hMenu: Hmenu
+    commands: seq[TrayMenuCommand]
 
   WebMessageHandler = object
     iface: ICoreWebView2WebMessageReceivedEventHandler
@@ -121,6 +141,7 @@ const
   wmViewyDispatch = wmApp + Uint(0x101)
   wmViewyHandoff = wmApp + Uint(0x102)
   wmViewyTerminate = wmApp + Uint(0x103)
+  wmViewyTray = wmApp + Uint(0x104)
   coinitApartmentThreaded = Dword(0x2)
   eInvalidArg = Hresult(-2147024809)
   eNoInterfaceLocal = Hresult(-2147467262)
@@ -354,6 +375,200 @@ proc removeBinding(state: WindowsState; name: string) =
       state.bindings.delete i
       return
 
+proc findTray(state: WindowsState; id: string): TrayRegistration =
+  for tray in state.trays:
+    if tray.id == id:
+      return tray
+
+proc findTrayByNotifyId(state: WindowsState; notifyId: Uint): TrayRegistration =
+  for tray in state.trays:
+    if tray.notifyId == notifyId:
+      return tray
+
+proc findTrayCommand(state: WindowsState; commandId: Uint): tuple[
+    tray: TrayRegistration; id: string] =
+  for tray in state.trays:
+    for command in tray.commands:
+      if command.commandId == commandId:
+        return (tray, command.id)
+
+proc removeTray(state: WindowsState; id: string) =
+  for i in 0 ..< state.trays.len:
+    if state.trays[i].id == id:
+      state.trays.delete i
+      return
+
+proc copyWide(dest: var openArray[Utf16Char]; value: string) =
+  if dest.len == 0:
+    return
+  for i in 0 ..< dest.len:
+    dest[i] = Utf16Char(0)
+  var i = 0
+  for rune in value.runes:
+    let codepoint = int32(rune)
+    if codepoint <= 0xFFFF:
+      if i >= dest.len - 1:
+        break
+      dest[i] = Utf16Char(codepoint)
+      inc i
+    else:
+      if i >= dest.len - 2:
+        break
+      let scalar = codepoint - 0x10000
+      dest[i] = Utf16Char(0xD800 + (scalar shr 10))
+      dest[i + 1] = Utf16Char(0xDC00 + (scalar and 0x3FF))
+      inc i, 2
+
+proc loadTrayIcon(options: TrayOptions): tuple[hIcon: Hicon; ownsIcon: bool] =
+  let path =
+    if options.iconPath.len > 0:
+      options.iconPath
+    else:
+      options.templateIconPath
+  if path.len > 0:
+    if not fileExists(path):
+      raise newException(WindowsBackendError,
+          "native Windows tray icon load failed: missing file " & path)
+    let icon = cast[Hicon](loadImageW(nil, wide(path), imageIcon, 0, 0,
+        lrLoadFromFile))
+    if icon == nil:
+      raise newException(WindowsBackendError,
+          "native Windows tray icon load failed: LoadImageW failed")
+    return (icon, true)
+  let icon = loadIconW(nil, idiApplication())
+  if icon == nil:
+    raise newException(WindowsBackendError,
+        "native Windows tray icon load failed: LoadIconW failed")
+  (icon, false)
+
+proc releaseTrayResources(tray: TrayRegistration) =
+  if tray == nil:
+    return
+  if tray.hMenu != nil:
+    discard destroyMenu(tray.hMenu)
+    tray.hMenu = nil
+  tray.commands.setLen(0)
+  if tray.hIcon != nil and tray.ownsIcon:
+    discard destroyIcon(tray.hIcon)
+  tray.hIcon = nil
+  tray.ownsIcon = false
+
+proc notifyData(state: WindowsState; tray: TrayRegistration;
+    flags: Uint): NotifyIconDataW =
+  result.cbSize = Dword(sizeof(NotifyIconDataW))
+  result.hWnd = state.shared.hwnd
+  result.uID = tray.notifyId
+  result.uFlags = flags
+  result.uCallbackMessage = wmViewyTray
+  result.hIcon = tray.hIcon
+  copyWide(result.szTip, tray.tooltip)
+
+proc shellNotify(state: WindowsState; message: Dword; tray: TrayRegistration;
+    flags: Uint; op: string) =
+  var data = state.notifyData(tray, flags)
+  if shellNotifyIconW(message, addr data) == winFalse:
+    raise newException(WindowsBackendError, "native Windows tray " & op &
+        " failed: Shell_NotifyIconW failed")
+
+proc nextMenuCommandId(state: WindowsState): Uint =
+  if state.nextMenuCommandId == 0:
+    state.nextMenuCommandId = Uint(1000)
+  result = state.nextMenuCommandId
+  inc state.nextMenuCommandId
+
+proc menuFlags(item: MenuItem): Uint =
+  result = mfString
+  if not item.enabled:
+    result = result or mfGrayed or mfDisabled
+  if item.checked:
+    result = result or mfChecked
+
+proc menuLabel(item: MenuItem): string =
+  result = item.label
+  if result.len == 0:
+    result = item.id
+  if item.accelerator.len > 0:
+    result.add "\t"
+    result.add item.accelerator
+
+proc appendMenuItems(state: WindowsState; tray: TrayRegistration; menu: Hmenu;
+    items: openArray[MenuItem])
+
+proc appendMenuItem(state: WindowsState; tray: TrayRegistration; menu: Hmenu;
+    item: MenuItem) =
+  case item.kind
+  of miSeparator:
+    if appendMenuW(menu, mfSeparator, UintPtr(0), nil) == winFalse:
+      raise newException(WindowsBackendError,
+          "native Windows tray menu append failed")
+  of miSubmenu:
+    let submenu = createPopupMenu()
+    if submenu == nil:
+      raise newException(WindowsBackendError,
+          "native Windows tray submenu create failed")
+    var attached = false
+    try:
+      state.appendMenuItems(tray, submenu, item.children)
+      if appendMenuW(menu, item.menuFlags or mfPopup, cast[UintPtr](submenu),
+          wide(item.menuLabel)) == winFalse:
+        raise newException(WindowsBackendError,
+            "native Windows tray submenu append failed")
+      attached = true
+    except CatchableError:
+      if not attached:
+        discard destroyMenu(submenu)
+      raise
+  of miCommand, miCheckbox, miRadio:
+    let commandId = state.nextMenuCommandId()
+    tray.commands.add TrayMenuCommand(commandId: commandId, id: item.id)
+    if appendMenuW(menu, item.menuFlags, UintPtr(commandId),
+        wide(item.menuLabel)) == winFalse:
+      raise newException(WindowsBackendError,
+          "native Windows tray menu item append failed")
+
+proc appendMenuItems(state: WindowsState; tray: TrayRegistration; menu: Hmenu;
+    items: openArray[MenuItem]) =
+  for item in items:
+    state.appendMenuItem(tray, menu, item)
+
+proc buildTrayMenu(state: WindowsState; tray: TrayRegistration;
+    items: openArray[MenuItem]): Hmenu =
+  if items.len == 0:
+    return nil
+  result = createPopupMenu()
+  if result == nil:
+    raise newException(WindowsBackendError,
+        "native Windows tray menu create failed")
+  try:
+    state.appendMenuItems(tray, result, items)
+  except CatchableError:
+    discard destroyMenu(result)
+    result = nil
+    tray.commands.setLen(0)
+    raise
+
+proc showTrayMenu(state: WindowsState; tray: TrayRegistration) =
+  if tray == nil or tray.hMenu == nil:
+    return
+  var point: Point
+  if getCursorPos(addr point) == winFalse:
+    point = Point(x: 0, y: 0)
+  discard setForegroundWindow(state.shared.hwnd)
+  discard trackPopupMenu(tray.hMenu, tpmRightButton, Int(point.x),
+      Int(point.y), 0, state.shared.hwnd, nil)
+
+proc deleteTrayIcon(state: WindowsState; tray: TrayRegistration) =
+  if state.shared.hwnd == nil or tray == nil:
+    return
+  var data = state.notifyData(tray, Uint(0))
+  discard shellNotifyIconW(nimDelete, addr data)
+
+proc clearTrays(state: WindowsState) =
+  for tray in state.trays:
+    state.deleteTrayIcon(tray)
+    tray.releaseTrayResources()
+  state.trays.setLen(0)
+
 proc releaseWebMessageHandler(state: WindowsState)
 
 proc ensureWebMessageHandler(state: WindowsState)
@@ -370,9 +585,13 @@ proc closeFromUiThread(state: WindowsState) =
     return
   shared.closed = true
   let hwnd = shared.hwnd
-  shared.hwnd = nil
   release(shared.lock)
 
+  state.clearTrays()
+  acquire(shared.lock)
+  if shared.hwnd == hwnd:
+    shared.hwnd = nil
+  release(shared.lock)
   state.releaseWebMessageHandler()
   state.releaseWebResourceHandler()
   state.handles.releaseHandles()
@@ -912,6 +1131,16 @@ proc wndProc(hwnd: Hwnd; msg: Uint; wParam: Wparam;
     {.cast(gcsafe).}:
       state.resizeWebview()
     return Lresult(0)
+  of wmCommand:
+    let commandId = Uint(wParam and Wparam(0xFFFF))
+    {.cast(gcsafe).}:
+      let command = state.findTrayCommand(commandId)
+      if command.tray != nil and not command.tray.cb.isNil:
+        try:
+          command.tray.cb(command.id)
+        except CatchableError:
+          discard
+    return Lresult(0)
   of wmClose:
     {.cast(gcsafe).}:
       state.closeFromUiThread()
@@ -924,6 +1153,22 @@ proc wndProc(hwnd: Hwnd; msg: Uint; wParam: Wparam;
     {.cast(gcsafe).}:
       state.closeFromUiThread()
     postQuitMessage(0)
+    return Lresult(0)
+  of wmViewyTray:
+    {.cast(gcsafe).}:
+      let tray = state.findTrayByNotifyId(Uint(wParam))
+      if tray != nil:
+        case Uint(lParam)
+        of wmLButtonUp:
+          if not tray.cb.isNil:
+            try:
+              tray.cb(tray.id)
+            except CatchableError:
+              discard
+        of wmRButtonUp:
+          state.showTrayMenu(tray)
+        else:
+          discard
     return Lresult(0)
   of wmViewyDispatch:
     let payload = cast[ptr DispatchPayload](lParam)
@@ -1198,6 +1443,113 @@ proc registerScheme(h: BackendHandle; scheme: string; handler: AssetHandler) =
   state.schemes.add SchemeRegistration(scheme: scheme, handler: handler)
   state.ensureWebResourceHandler()
 
+proc trayCreate(h: BackendHandle; options: TrayOptions; cb: MenuCallback) =
+  let state = h.toState
+  state.assertUiThread
+  state.requireOpen("native Windows tray create")
+  if options.id.len == 0:
+    raise newException(WindowsBackendError,
+        "native Windows tray create failed: empty tray id")
+  if cb.isNil:
+    raise newException(WindowsBackendError,
+        "native Windows tray create failed: nil callback")
+  if state.findTray(options.id) != nil:
+    raise newException(WindowsBackendError,
+        "native Windows tray create failed: duplicate tray id " & options.id)
+
+  let icon = options.loadTrayIcon()
+  if state.nextTrayId == 0:
+    state.nextTrayId = Uint(1)
+  let tray = TrayRegistration(
+    id: options.id,
+    notifyId: state.nextTrayId,
+    tooltip: options.tooltip,
+    iconPath: options.iconPath,
+    templateIconPath: options.templateIconPath,
+    menu: options.menu,
+    cb: cb,
+    hIcon: icon.hIcon,
+    ownsIcon: icon.ownsIcon,
+  )
+  inc state.nextTrayId
+  try:
+    tray.hMenu = state.buildTrayMenu(tray, options.menu)
+    state.shellNotify(nimAdd, tray, nifMessage or nifIcon or nifTip, "create")
+    var data = state.notifyData(tray, Uint(0))
+    data.uVersion = notifyIconVersion4
+    discard shellNotifyIconW(nimSetVersion, addr data)
+    state.trays.add tray
+  except CatchableError:
+    state.deleteTrayIcon(tray)
+    tray.releaseTrayResources()
+    raise
+
+proc trayUpdate(h: BackendHandle; id: string; options: TrayOptions) =
+  let state = h.toState
+  state.assertUiThread
+  state.requireOpen("native Windows tray update")
+  if id.len == 0:
+    raise newException(WindowsBackendError,
+        "native Windows tray update failed: empty tray id")
+  let tray = state.findTray(id)
+  if tray == nil:
+    raise newException(WindowsBackendError,
+        "native Windows tray update failed: unknown tray id " & id)
+
+  let icon = options.loadTrayIcon()
+  let oldIcon = tray.hIcon
+  let oldOwnsIcon = tray.ownsIcon
+  let oldMenu = tray.hMenu
+  let oldCommands = tray.commands
+  let oldTooltip = tray.tooltip
+  let oldIconPath = tray.iconPath
+  let oldTemplateIconPath = tray.templateIconPath
+  let oldMenuItems = tray.menu
+  tray.hIcon = icon.hIcon
+  tray.ownsIcon = icon.ownsIcon
+  tray.tooltip = options.tooltip
+  tray.iconPath = options.iconPath
+  tray.templateIconPath = options.templateIconPath
+  tray.menu = options.menu
+  tray.hMenu = nil
+  tray.commands = @[]
+  try:
+    tray.hMenu = state.buildTrayMenu(tray, options.menu)
+    state.shellNotify(nimModify, tray, nifMessage or nifIcon or nifTip, "update")
+    if oldMenu != nil:
+      discard destroyMenu(oldMenu)
+    if oldIcon != nil and oldOwnsIcon:
+      discard destroyIcon(oldIcon)
+  except CatchableError:
+    if tray.hMenu != nil:
+      discard destroyMenu(tray.hMenu)
+    if tray.hIcon != nil and tray.ownsIcon:
+      discard destroyIcon(tray.hIcon)
+    tray.hIcon = oldIcon
+    tray.ownsIcon = oldOwnsIcon
+    tray.hMenu = oldMenu
+    tray.commands = oldCommands
+    tray.tooltip = oldTooltip
+    tray.iconPath = oldIconPath
+    tray.templateIconPath = oldTemplateIconPath
+    tray.menu = oldMenuItems
+    raise
+
+proc trayDestroy(h: BackendHandle; id: string) =
+  let state = h.toState
+  state.assertUiThread
+  state.requireOpen("native Windows tray destroy")
+  if id.len == 0:
+    raise newException(WindowsBackendError,
+        "native Windows tray destroy failed: empty tray id")
+  let tray = state.findTray(id)
+  if tray == nil:
+    raise newException(WindowsBackendError,
+        "native Windows tray destroy failed: unknown tray id " & id)
+  state.deleteTrayIcon(tray)
+  tray.releaseTrayResources()
+  state.removeTray(id)
+
 proc newBackend*(): Backend =
   Backend(
     create: create,
@@ -1217,6 +1569,9 @@ proc newBackend*(): Backend =
     bindFn: bindFn,
     unbind: unbind,
     resolve: resolve,
-    caps: {capScheme},
+    caps: {capScheme, capTray},
     registerSchemeImpl: registerScheme,
+    trayCreateImpl: trayCreate,
+    trayUpdateImpl: trayUpdate,
+    trayDestroyImpl: trayDestroy,
   )

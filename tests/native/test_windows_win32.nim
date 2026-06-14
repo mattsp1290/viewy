@@ -17,6 +17,8 @@ else:
   doAssert winTrue == 1
   doAssert wmCreate == 0x0001'u32
   doAssert wmNcCreate == 0x0081'u32
+  doAssert wmLButtonUp == 0x0202'u32
+  doAssert wmRButtonUp == 0x0205'u32
   doAssert wmDpiChanged == 0x02E0'u32
   doAssert wmGetDpiScaledSize == 0x02E4'u32
   doAssert wmApp == 0x8000'u32
@@ -27,11 +29,27 @@ else:
   doAssert vkF12 == 0x7B'u16
   doAssert dpiAwarenessContextPerMonitorAwareV2() == cast[DpiAwarenessContext](-4)
   doAssert hwndMessage() == cast[Hwnd](-3)
+  doAssert idiApplication() == cast[Lpcwstr](idiApplicationValue)
+  doAssert (nifMessage or nifIcon or nifTip) == 0x00000007'u32
+  doAssert nimAdd == 0'u32
+  doAssert nimModify == 1'u32
+  doAssert nimDelete == 2'u32
+  doAssert nimSetVersion == 4'u32
+  doAssert notifyIconVersion4 == 4'u32
+  doAssert mfSeparator == 0x00000800'u32
+  doAssert mfPopup == 0x00000010'u32
 
   when defined(nimcheck):
     var
       rect = Rect(left: 0, top: 0, right: 800, bottom: 600)
       msg: Msg
+      point: Point
+      nid = NotifyIconDataW(
+        cbSize: Dword(sizeof(NotifyIconDataW)),
+        uFlags: nifMessage or nifIcon or nifTip,
+        uCallbackMessage: wmApp,
+        uVersion: notifyIconVersion4,
+      )
       accel = Accel(fVirt: fvVirtKey or fControl, key: Word('Q'.ord),
         cmd: Word(100))
       wc = WndClassExW(
@@ -42,10 +60,30 @@ else:
         hCursor: loadCursorW(nil, idcArrow()),
         lpszClassName: newWideCString("ViewyWindow"),
       )
+    let appIcon = loadIconW(nil, idiApplication())
+    discard loadImageW(nil, newWideCString("icon.ico"), imageIcon, 0, 0,
+      lrLoadFromFile)
     discard registerClassExW(addr wc)
     let hwnd = createWindowExW(0, wc.lpszClassName, newWideCString("Viewy"),
       wsOverlappedWindow or wsVisible, cwUseDefault, cwUseDefault, 800, 600,
       nil, nil, wc.hInstance, nil)
+    nid.hWnd = hwnd
+    nid.uID = 1
+    nid.hIcon = appIcon
+    discard shellNotifyIconW(nimAdd, addr nid)
+    discard shellNotifyIconW(nimModify, addr nid)
+    discard shellNotifyIconW(nimSetVersion, addr nid)
+    discard shellNotifyIconW(nimDelete, addr nid)
+    let menu = createPopupMenu()
+    let submenu = createPopupMenu()
+    discard appendMenuW(menu, mfString, 1, newWideCString("Open"))
+    discard appendMenuW(menu, mfSeparator, 0, nil)
+    discard appendMenuW(menu, mfPopup, cast[UintPtr](submenu),
+      newWideCString("More"))
+    discard getCursorPos(addr point)
+    discard setForegroundWindow(hwnd)
+    discard trackPopupMenu(menu, tpmRightButton, point.x, point.y, 0, hwnd, nil)
+    discard destroyMenu(menu)
     discard showWindow(hwnd, swShow)
     discard updateWindow(hwnd)
     discard setWindowTextW(hwnd, newWideCString("Updated"))

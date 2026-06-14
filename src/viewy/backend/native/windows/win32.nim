@@ -5,9 +5,9 @@
 
 when defined(windows):
   when defined(vcc):
-    {.passL: "user32.lib kernel32.lib".}
+    {.passL: "user32.lib kernel32.lib shell32.lib".}
   else:
-    {.passL: "-luser32 -lkernel32".}
+    {.passL: "-luser32 -lkernel32 -lshell32".}
 
 type
   Bool* = cint
@@ -20,6 +20,7 @@ type
   Long* = int32
   LongPtr* = int
   UintPtr* = uint
+  DwordPtr* = uint
   Wparam* = UintPtr
   Lparam* = LongPtr
   Lresult* = LongPtr
@@ -103,6 +104,30 @@ when defined(windows) or defined(nimcheck):
       fVirt*: Byte
       key*: Word
       cmd*: Word
+
+    Guid* {.importc: "GUID", header: "windows.h", bycopy.} = object
+      data1*: Dword
+      data2*: Word
+      data3*: Word
+      data4*: array[8, Byte]
+
+    NotifyIconDataW* {.importc: "NOTIFYICONDATAW", header: "shellapi.h",
+        bycopy.} = object
+      cbSize*: Dword
+      hWnd*: Hwnd
+      uID*: Uint
+      uFlags*: Uint
+      uCallbackMessage*: Uint
+      hIcon*: Hicon
+      szTip*: array[128, Utf16Char]
+      dwState*: Dword
+      dwStateMask*: Dword
+      szInfo*: array[256, Utf16Char]
+      uVersion*: Uint
+      szInfoTitle*: array[64, Utf16Char]
+      dwInfoFlags*: Dword
+      guidItem*: Guid
+      hBalloonIcon*: Hicon
 else:
   type
     Point* = object
@@ -166,6 +191,29 @@ else:
       fVirt*: Byte
       key*: Word
       cmd*: Word
+
+    Guid* = object
+      data1*: Dword
+      data2*: Word
+      data3*: Word
+      data4*: array[8, Byte]
+
+    NotifyIconDataW* = object
+      cbSize*: Dword
+      hWnd*: Hwnd
+      uID*: Uint
+      uFlags*: Uint
+      uCallbackMessage*: Uint
+      hIcon*: Hicon
+      szTip*: array[128, Utf16Char]
+      dwState*: Dword
+      dwStateMask*: Dword
+      szInfo*: array[256, Utf16Char]
+      uVersion*: Uint
+      szInfoTitle*: array[64, Utf16Char]
+      dwInfoFlags*: Dword
+      guidItem*: Guid
+      hBalloonIcon*: Hicon
 
 const
   winFalse* = Bool(0)
@@ -241,12 +289,37 @@ const
   vkF12* = Word(0x7B)
 
   idcArrowValue* = 32512
+  idiApplicationValue* = 32512
 
   wmNcCreate* = Uint(0x0081)
+  wmLButtonUp* = Uint(0x0202)
+  wmRButtonUp* = Uint(0x0205)
   wmApp* = Uint(0x8000)
 
   swpNoMove* = Uint(0x0002)
   swpNoZOrder* = Uint(0x0004)
+
+  imageIcon* = Uint(1)
+  lrLoadFromFile* = Uint(0x00000010)
+
+  nimAdd* = Dword(0x00000000)
+  nimModify* = Dword(0x00000001)
+  nimDelete* = Dword(0x00000002)
+  nimSetVersion* = Dword(0x00000004)
+  notifyIconVersion4* = Uint(4)
+
+  nifMessage* = Uint(0x00000001)
+  nifIcon* = Uint(0x00000002)
+  nifTip* = Uint(0x00000004)
+
+  mfString* = Uint(0x00000000)
+  mfGrayed* = Uint(0x00000001)
+  mfDisabled* = Uint(0x00000002)
+  mfChecked* = Uint(0x00000008)
+  mfPopup* = Uint(0x00000010)
+  mfSeparator* = Uint(0x00000800)
+
+  tpmRightButton* = Uint(0x0002)
 
 proc dpiAwarenessContextPerMonitorAwareV2*(): DpiAwarenessContext =
   cast[DpiAwarenessContext](-4)
@@ -256,6 +329,9 @@ proc hwndMessage*(): Hwnd =
 
 proc idcArrow*(): Lpcwstr =
   cast[Lpcwstr](idcArrowValue)
+
+proc idiApplication*(): Lpcwstr =
+  cast[Lpcwstr](idiApplicationValue)
 
 proc registerClassExW*(lpWndClass: ptr WndClassExW): Atom
   {.importc: "RegisterClassExW", header: "windows.h", stdcall.}
@@ -308,6 +384,16 @@ proc getModuleHandleW*(lpModuleName: Lpcwstr): Hinstance
 
 proc loadCursorW*(hInstance: Hinstance; lpCursorName: Lpcwstr): Hcursor
   {.importc: "LoadCursorW", header: "windows.h", stdcall.}
+
+proc loadIconW*(hInstance: Hinstance; lpIconName: Lpcwstr): Hicon
+  {.importc: "LoadIconW", header: "windows.h", stdcall.}
+
+proc loadImageW*(hinst: Hinstance; name: Lpcwstr; imageType: Uint; cx, cy: Int;
+    fuLoad: Uint): pointer
+  {.importc: "LoadImageW", header: "windows.h", stdcall.}
+
+proc destroyIcon*(hIcon: Hicon): Bool
+  {.importc: "DestroyIcon", header: "windows.h", stdcall.}
 
 proc setWindowLongPtrW*(hWnd: Hwnd; nIndex: Int;
     dwNewLong: LongPtr): LongPtr
@@ -368,3 +454,26 @@ proc translateAcceleratorW*(hWnd: Hwnd; hAccTable: Haccel;
 
 proc destroyAcceleratorTable*(hAccel: Haccel): Bool
   {.importc: "DestroyAcceleratorTable", header: "windows.h", stdcall.}
+
+proc shellNotifyIconW*(dwMessage: Dword; lpData: ptr NotifyIconDataW): Bool
+  {.importc: "Shell_NotifyIconW", header: "shellapi.h", stdcall.}
+
+proc createPopupMenu*(): Hmenu
+  {.importc: "CreatePopupMenu", header: "windows.h", stdcall.}
+
+proc destroyMenu*(hMenu: Hmenu): Bool
+  {.importc: "DestroyMenu", header: "windows.h", stdcall.}
+
+proc appendMenuW*(hMenu: Hmenu; uFlags: Uint; uIDNewItem: UintPtr;
+    lpNewItem: Lpcwstr): Bool
+  {.importc: "AppendMenuW", header: "windows.h", stdcall.}
+
+proc trackPopupMenu*(hMenu: Hmenu; uFlags: Uint; x, y, nReserved: Int;
+    hWnd: Hwnd; prcRect: pointer): Bool
+  {.importc: "TrackPopupMenu", header: "windows.h", stdcall.}
+
+proc setForegroundWindow*(hWnd: Hwnd): Bool
+  {.importc: "SetForegroundWindow", header: "windows.h", stdcall.}
+
+proc getCursorPos*(lpPoint: ptr Point): Bool
+  {.importc: "GetCursorPos", header: "windows.h", stdcall.}

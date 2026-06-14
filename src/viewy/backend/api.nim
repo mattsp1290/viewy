@@ -229,7 +229,7 @@ when selectedBackend == "native":
   elif defined(linux):
     const selectedBackendCaps*: set[Capability] = {capScheme}
   elif defined(windows):
-    const selectedBackendCaps*: set[Capability] = {capScheme}
+    const selectedBackendCaps*: set[Capability] = {capScheme, capTray}
   else:
     const selectedBackendCaps*: set[Capability] = {}
 elif selectedBackend == "lite":

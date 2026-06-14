@@ -23,18 +23,41 @@ else:
   doAssert nativeBackend.bindFn != nil
   doAssert nativeBackend.unbind != nil
   doAssert nativeBackend.resolve != nil
-  doAssert nativeBackend.caps == {capScheme}
+  doAssert nativeBackend.caps == {capScheme, capTray}
   doAssert nativeBackend.registerSchemeImpl != nil
+  doAssert nativeBackend.trayCreateImpl != nil
+  doAssert nativeBackend.trayUpdateImpl != nil
+  doAssert nativeBackend.trayDestroyImpl != nil
 
   when defined(nimcheck):
     var handle: BackendHandle
     if handle != nil:
+      proc trayCb(id: string) {.gcsafe.} =
+        discard id
+
       nativeBackend.setTitle(handle, "Viewy")
       nativeBackend.setSize(handle, 800, 600, whNone)
       nativeBackend.navigate(handle, "https://example.test/")
       nativeBackend.setHtml(handle, "<!doctype html><title>Viewy</title>")
       nativeBackend.init(handle, "window.__viewyInit = true;")
       nativeBackend.eval(handle, "window.__viewyEval = true;")
+      nativeBackend.trayCreateImpl(handle, TrayOptions(
+        id: "main",
+        tooltip: "Viewy",
+        menu: @[
+          MenuItem(id: "open", label: "Open", kind: miCommand, enabled: true),
+          MenuItem(kind: miSeparator),
+          MenuItem(id: "quit", label: "Quit", kind: miCommand, enabled: true),
+        ],
+      ), trayCb)
+      nativeBackend.trayUpdateImpl(handle, "main", TrayOptions(
+        id: "main",
+        tooltip: "Updated",
+        menu: @[
+          MenuItem(id: "open", label: "Open", kind: miCommand, enabled: true),
+        ],
+      ))
+      nativeBackend.trayDestroyImpl(handle, "main")
       nativeBackend.dispatchEval(handle, "window.__viewyDispatch = true;")
       nativeBackend.dispatchResolve(handle, "1", true, "{}")
       nativeBackend.dispatchTerminate(handle)

@@ -37,6 +37,7 @@ Compile-only platform FFI/glue checks. They skip or are CI-gated off-platform.
 - `native/test_linux_webkitgtk_ffi.nim`
 - `native/test_windows_com.nim`
 - `native/test_windows_ipc.nim`
+- `native/test_windows_tray.nim`
 - `native/test_windows_webview2.nim`
 - `native/test_windows_webview2_env_spike.nim`
 - `native/test_windows_webview2_pin.nim`

@@ -61,7 +61,7 @@ static:
       let (output, exitCode) = nimCheck("""
 import viewy/backend/api
 static:
-  doAssert selectedBackendCaps == {capScheme}
+  doAssert selectedBackendCaps == {capScheme, capTray}
 """, "--os:windows -d:viewyBackend=native")
       checkpoint output
       check exitCode == 0
@@ -75,6 +75,7 @@ doAssert backend.create != nil
 doAssert backend.run != nil
 doAssert backend.dispatchTerminate != nil
 doAssert capScheme in backend.caps
+doAssert capTray in backend.caps
 """, "--os:windows -d:nimcheck -d:viewyBackend=native")
       checkpoint output
       check exitCode == 0
