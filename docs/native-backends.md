@@ -27,7 +27,7 @@ on operating system names.
 | `-d:viewyBackend=lite` | all supported platforms | none |
 | `-d:viewyBackend=native` | Linux | `capScheme` |
 | `-d:viewyBackend=native` | macOS | `capScheme`, `capMenu`, `capTray`, `capWindowEvents` |
-| `-d:viewyBackend=native` | Windows | `capScheme`, `capTray` |
+| `-d:viewyBackend=native` | Windows | `capScheme`, `capMenu`, `capTray` |
 | `-d:viewyBackend=native` | unsupported platforms | none; backend construction fails at compile time |
 
 This matrix is intentionally capability-based. Windows menu/tray work, Linux
@@ -176,11 +176,12 @@ The Windows native backend is a hand-written Win32/WebView2 implementation under
 - `backend.nim` owns the Win32 window, message loop, WebView2 handles, binding
   callbacks, virtual-host scheme handling, and typed handoff payloads.
 
-Windows currently advertises `capScheme` and `capTray`. IPC and init-script
-parity are implemented with `AddScriptToExecuteOnDocumentCreated` and
-`WebMessageReceived`. Scheme mode maps to `https://viewy.localhost/` through
-WebView2 `WebResourceRequested`. Tray support uses `Shell_NotifyIconW` with
-Win32 popup menus and updates icons through the same tray update slot used for
+Windows currently advertises `capScheme`, `capMenu`, and `capTray`. IPC and
+init-script parity are implemented with `AddScriptToExecuteOnDocumentCreated`
+and `WebMessageReceived`. Scheme mode maps to `https://viewy.localhost/`
+through WebView2 `WebResourceRequested`. Menu support uses HMENU menu bars with
+ACCEL-table accelerators. Tray support uses `Shell_NotifyIconW` with Win32
+popup menus and updates icons through the same tray update slot used for
 light/dark icon swaps.
 
 ## Conformance And Gates
@@ -264,7 +265,8 @@ Selected backend capability gates are also part of the contract. Current gates:
 - `-d:viewyBackend=native` on Linux advertises `capScheme`.
 - `-d:viewyBackend=native` on macOS advertises `capScheme`, `capMenu`,
   `capTray`, and `capWindowEvents`.
-- `-d:viewyBackend=native` on Windows advertises `capScheme` and `capTray`.
+- `-d:viewyBackend=native` on Windows advertises `capScheme`, `capMenu`, and
+  `capTray`.
 - `-d:viewyBackend=native` on unsupported platforms advertises no capabilities;
   importing `viewy/backend/select` and calling `newBackend()` fails at compile
   time until that platform backend lands.

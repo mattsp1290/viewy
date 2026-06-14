@@ -27,6 +27,8 @@ else:
   doAssert wsExControlParent == 0x00010000'u32
   doAssert (fvVirtKey or fControl or fShift) == Byte(0x0D)
   doAssert vkF12 == 0x7B'u16
+  doAssert vkOemPlus == 0xBB'u16
+  doAssert vkOemMinus == 0xBD'u16
   doAssert dpiAwarenessContextPerMonitorAwareV2() == cast[DpiAwarenessContext](-4)
   doAssert hwndMessage() == cast[Hwnd](-3)
   doAssert idiApplication() == cast[Lpcwstr](idiApplicationValue)
@@ -75,16 +77,22 @@ else:
     discard shellNotifyIconW(nimModify, addr nid)
     discard shellNotifyIconW(nimSetVersion, addr nid)
     discard shellNotifyIconW(nimDelete, addr nid)
+    let menuBar = createMenu()
     let menu = createPopupMenu()
     let submenu = createPopupMenu()
     discard appendMenuW(menu, mfString, 1, newWideCString("Open"))
     discard appendMenuW(menu, mfSeparator, 0, nil)
     discard appendMenuW(menu, mfPopup, cast[UintPtr](submenu),
       newWideCString("More"))
+    discard appendMenuW(menuBar, mfPopup, cast[UintPtr](menu),
+      newWideCString("File"))
+    discard setMenu(hwnd, menuBar)
+    discard drawMenuBar(hwnd)
     discard getCursorPos(addr point)
     discard setForegroundWindow(hwnd)
     discard trackPopupMenu(menu, tpmRightButton, point.x, point.y, 0, hwnd, nil)
-    discard destroyMenu(menu)
+    discard setMenu(hwnd, nil)
+    discard destroyMenu(menuBar)
     discard showWindow(hwnd, swShow)
     discard updateWindow(hwnd)
     discard setWindowTextW(hwnd, newWideCString("Updated"))

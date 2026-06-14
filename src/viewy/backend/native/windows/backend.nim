@@ -8,6 +8,7 @@ import std/[locks, os, strutils, unicode, uri]
 
 import ../../api
 import ../../windows_webview2_pin
+import ../../../menu
 import ./[com, webview2, win32]
 import ./ipc_bridge
 
@@ -64,6 +65,10 @@ type
     trays: seq[TrayRegistration]
     nextTrayId: Uint
     nextMenuCommandId: Uint
+    hAppMenu: Hmenu
+    hAccel: Haccel
+    appMenuCallback: MenuCallback
+    appMenuCommands: seq[MenuCommand]
     webMessageHandler: ptr WebMessageHandler
     webMessageToken: EventRegistrationToken
     webResourceHandler: ptr WebResourceHandler
@@ -87,7 +92,7 @@ type
     name: string
     cb: BindCallback
 
-  TrayMenuCommand = object
+  MenuCommand = object
     commandId: Uint
     id: string
 
@@ -102,7 +107,7 @@ type
     hIcon: Hicon
     ownsIcon: bool
     hMenu: Hmenu
-    commands: seq[TrayMenuCommand]
+    commands: seq[MenuCommand]
 
   WebMessageHandler = object
     iface: ICoreWebView2WebMessageReceivedEventHandler
@@ -394,6 +399,11 @@ proc findTrayCommand(state: WindowsState; commandId: Uint): tuple[
       if command.commandId == commandId:
         return (tray, command.id)
 
+proc findAppMenuCommand(state: WindowsState; commandId: Uint): string =
+  for command in state.appMenuCommands:
+    if command.commandId == commandId:
+      return command.id
+
 proc removeTray(state: WindowsState; id: string) =
   for i in 0 ..< state.trays.len:
     if state.trays[i].id == id:
@@ -490,6 +500,9 @@ proc modifyTrayIcon(state: WindowsState; tray: TrayRegistration) =
       "native Windows tray update failed: Shell_NotifyIconW failed")
 
 proc hasMenuCommand(state: WindowsState; commandId: Uint): bool =
+  for command in state.appMenuCommands:
+    if command.commandId == commandId:
+      return true
   for tray in state.trays:
     for command in tray.commands:
       if command.commandId == commandId:
@@ -533,11 +546,73 @@ proc menuLabel(item: MenuItem): string =
     result.add "\t"
     result.add item.accelerator
 
-proc appendMenuItems(state: WindowsState; tray: TrayRegistration; menu: Hmenu;
-    items: openArray[MenuItem])
+proc virtualKeyFor(key: string): Word =
+  if key.len == 1:
+    let ch = key[0]
+    if ch in {'A' .. 'Z', '0' .. '9'}:
+      return Word(ch.ord)
+  if key.len in 2 .. 3 and key[0] == 'F':
+    try:
+      let n = key[1 .. ^1].parseInt()
+      if n in 1 .. 24:
+        return Word(vkF1 + Word(n - 1))
+    except ValueError:
+      discard
+  case key
+  of "Enter": vkReturn
+  of "Escape": vkEscape
+  of "Tab": vkTab
+  of "Space": vkSpace
+  of "Backspace": vkBackspace
+  of "Delete": vkDelete
+  of "Insert": vkInsert
+  of "Home": vkHome
+  of "End": vkEnd
+  of "PageUp": vkPageUp
+  of "PageDown": vkPageDown
+  of "Up": vkUp
+  of "Down": vkDown
+  of "Left": vkLeft
+  of "Right": vkRight
+  of "Plus": vkOemPlus
+  of "Minus": vkOemMinus
+  of "Comma": vkOemComma
+  of "Period": vkOemPeriod
+  of "Slash": vkOem2
+  of "Backslash": vkOem5
+  of "Semicolon": vkOem1
+  of "Quote": vkOem7
+  of "BracketLeft": vkOem4
+  of "BracketRight": vkOem6
+  of "Equal": vkOemPlus
+  of "Grave": vkOem3
+  else: Word(0)
 
-proc appendMenuItem(state: WindowsState; tray: TrayRegistration; menu: Hmenu;
-    item: MenuItem) =
+proc acceleratorFor(item: MenuItem; commandId: Uint): Accel =
+  let accelerator = parseAccelerator(item.accelerator, apWindows)
+  let key = accelerator.key.virtualKeyFor()
+  if key == Word(0):
+    raise newException(WindowsBackendError,
+        "native Windows menu accelerator failed: unsupported key " &
+        accelerator.key)
+  if amSuper in accelerator.modifiers:
+    raise newException(WindowsBackendError,
+        "native Windows menu accelerator failed: Super is not supported")
+  result = Accel(fVirt: fvVirtKey or fNoInvert, key: key, cmd: Word(commandId))
+  if amCtrl in accelerator.modifiers:
+    result.fVirt = result.fVirt or fControl
+  if amShift in accelerator.modifiers:
+    result.fVirt = result.fVirt or fShift
+  if amAlt in accelerator.modifiers:
+    result.fVirt = result.fVirt or fAlt
+
+proc appendMenuItems(state: WindowsState; commands: var seq[MenuCommand];
+    accelerators: var seq[Accel]; menu: Hmenu; items: openArray[MenuItem];
+    collectAccelerators: bool)
+
+proc appendMenuItem(state: WindowsState; commands: var seq[MenuCommand];
+    accelerators: var seq[Accel]; menu: Hmenu; item: MenuItem;
+    collectAccelerators: bool) =
   case item.kind
   of miSeparator:
     if appendMenuW(menu, mfSeparator, UintPtr(0), nil) == winFalse:
@@ -550,7 +625,8 @@ proc appendMenuItem(state: WindowsState; tray: TrayRegistration; menu: Hmenu;
           "native Windows tray submenu create failed")
     var attached = false
     try:
-      state.appendMenuItems(tray, submenu, item.children)
+      state.appendMenuItems(commands, accelerators, submenu, item.children,
+          collectAccelerators)
       if appendMenuW(menu, item.menuFlags or mfPopup, cast[UintPtr](submenu),
           wide(item.menuLabel)) == winFalse:
         raise newException(WindowsBackendError,
@@ -562,16 +638,28 @@ proc appendMenuItem(state: WindowsState; tray: TrayRegistration; menu: Hmenu;
       raise
   of miCommand, miCheckbox, miRadio:
     let commandId = state.nextMenuCommandId()
-    tray.commands.add TrayMenuCommand(commandId: commandId, id: item.id)
+    commands.add MenuCommand(commandId: commandId, id: item.id)
+    if collectAccelerators and item.accelerator.len > 0:
+      try:
+        accelerators.add item.acceleratorFor(commandId)
+      except AcceleratorParseError as e:
+        raise newException(WindowsBackendError,
+            "native Windows menu accelerator failed: " & e.msg)
     if appendMenuW(menu, item.menuFlags, UintPtr(commandId),
         wide(item.menuLabel)) == winFalse:
       raise newException(WindowsBackendError,
           "native Windows tray menu item append failed")
 
-proc appendMenuItems(state: WindowsState; tray: TrayRegistration; menu: Hmenu;
-    items: openArray[MenuItem]) =
+proc appendMenuItems(state: WindowsState; commands: var seq[MenuCommand];
+    accelerators: var seq[Accel]; menu: Hmenu; items: openArray[MenuItem];
+    collectAccelerators: bool) =
   for item in items:
-    state.appendMenuItem(tray, menu, item)
+    state.appendMenuItem(commands, accelerators, menu, item, collectAccelerators)
+
+proc buildMenu(state: WindowsState; root: Hmenu; items: openArray[MenuItem];
+    commands: var seq[MenuCommand]; accelerators: var seq[Accel];
+    collectAccelerators: bool) =
+  state.appendMenuItems(commands, accelerators, root, items, collectAccelerators)
 
 proc buildTrayMenu(state: WindowsState; tray: TrayRegistration;
     items: openArray[MenuItem]): Hmenu =
@@ -582,7 +670,8 @@ proc buildTrayMenu(state: WindowsState; tray: TrayRegistration;
     raise newException(WindowsBackendError,
         "native Windows tray menu create failed")
   try:
-    state.appendMenuItems(tray, result, items)
+    var accelerators: seq[Accel] = @[]
+    state.buildMenu(result, items, tray.commands, accelerators, false)
   except CatchableError:
     discard destroyMenu(result)
     result = nil
@@ -611,6 +700,19 @@ proc clearTrays(state: WindowsState) =
     tray.releaseTrayResources()
   state.trays.setLen(0)
 
+proc releaseAppMenu(state: WindowsState) =
+  if state.hAccel != nil:
+    discard destroyAcceleratorTable(state.hAccel)
+    state.hAccel = nil
+  if state.shared.hwnd != nil and state.hAppMenu != nil:
+    discard setMenu(state.shared.hwnd, nil)
+    discard drawMenuBar(state.shared.hwnd)
+  if state.hAppMenu != nil:
+    discard destroyMenu(state.hAppMenu)
+    state.hAppMenu = nil
+  state.appMenuCommands.setLen(0)
+  state.appMenuCallback = nil
+
 proc releaseWebMessageHandler(state: WindowsState)
 
 proc ensureWebMessageHandler(state: WindowsState)
@@ -630,6 +732,7 @@ proc closeFromUiThread(state: WindowsState) =
   release(shared.lock)
 
   state.clearTrays()
+  state.releaseAppMenu()
   acquire(shared.lock)
   if shared.hwnd == hwnd:
     shared.hwnd = nil
@@ -1182,14 +1285,25 @@ proc wndProc(hwnd: Hwnd; msg: Uint; wParam: Wparam;
     return Lresult(0)
   of wmCommand:
     let commandId = Uint(wParam and Wparam(0xFFFF))
+    var handled = false
     {.cast(gcsafe).}:
-      let command = state.findTrayCommand(commandId)
-      if command.tray != nil and not command.tray.cb.isNil:
+      let appCommandId = state.findAppMenuCommand(commandId)
+      if appCommandId.len > 0 and not state.appMenuCallback.isNil:
+        handled = true
         try:
-          command.tray.cb(command.id)
+          state.appMenuCallback(appCommandId)
         except CatchableError:
           discard
-    return Lresult(0)
+      let trayCommand = state.findTrayCommand(commandId)
+      if not handled and trayCommand.tray != nil and
+          not trayCommand.tray.cb.isNil:
+        handled = true
+        try:
+          trayCommand.tray.cb(trayCommand.id)
+        except CatchableError:
+          discard
+    if handled:
+      return Lresult(0)
   of wmClose:
     {.cast(gcsafe).}:
       state.closeFromUiThread()
@@ -1338,6 +1452,9 @@ proc run(h: BackendHandle) =
   discard updateWindow(state.shared.hwnd)
   var msg: Msg
   while getMessageW(addr msg, nil, 0, 0) != winFalse:
+    if state.hAccel != nil and translateAcceleratorW(state.shared.hwnd,
+        state.hAccel, addr msg) != 0:
+      continue
     discard translateMessage(addr msg)
     discard dispatchMessageW(addr msg)
 
@@ -1494,6 +1611,49 @@ proc registerScheme(h: BackendHandle; scheme: string; handler: AssetHandler) =
   state.schemes.add SchemeRegistration(scheme: scheme, handler: handler)
   state.ensureWebResourceHandler()
 
+proc setAppMenu(h: BackendHandle; menu: seq[MenuItem]; cb: MenuCallback) =
+  let state = h.toState
+  state.assertUiThread
+  state.requireOpen("native Windows app menu")
+  if cb.isNil:
+    raise newException(WindowsBackendError,
+        "native Windows set app menu failed: nil callback")
+  let hMenu = createMenu()
+  if hMenu == nil:
+    raise newException(WindowsBackendError,
+        "native Windows set app menu failed: CreateMenu failed")
+  var
+    commands: seq[MenuCommand] = @[]
+    accelerators: seq[Accel] = @[]
+    hAccel: Haccel
+  try:
+    state.buildMenu(hMenu, menu, commands, accelerators, true)
+    if accelerators.len > 0:
+      hAccel = createAcceleratorTableW(addr accelerators[0],
+          Int(accelerators.len))
+      if hAccel == nil:
+        raise newException(WindowsBackendError,
+            "native Windows set app menu failed: CreateAcceleratorTableW failed")
+    let oldMenu = state.hAppMenu
+    let oldAccel = state.hAccel
+    if setMenu(state.shared.hwnd, hMenu) == winFalse:
+      raise newException(WindowsBackendError,
+          "native Windows set app menu failed: SetMenu failed")
+    discard drawMenuBar(state.shared.hwnd)
+    state.hAppMenu = hMenu
+    state.hAccel = hAccel
+    state.appMenuCommands = commands
+    state.appMenuCallback = cb
+    if oldAccel != nil:
+      discard destroyAcceleratorTable(oldAccel)
+    if oldMenu != nil:
+      discard destroyMenu(oldMenu)
+  except CatchableError:
+    if hAccel != nil:
+      discard destroyAcceleratorTable(hAccel)
+    discard destroyMenu(hMenu)
+    raise
+
 proc trayCreate(h: BackendHandle; options: TrayOptions; cb: MenuCallback) =
   let state = h.toState
   state.assertUiThread
@@ -1617,8 +1777,9 @@ proc newBackend*(): Backend =
     bindFn: bindFn,
     unbind: unbind,
     resolve: resolve,
-    caps: {capScheme, capTray},
+    caps: {capScheme, capMenu, capTray},
     registerSchemeImpl: registerScheme,
+    setAppMenuImpl: setAppMenu,
     trayCreateImpl: trayCreate,
     trayUpdateImpl: trayUpdate,
     trayDestroyImpl: trayDestroy,

@@ -287,6 +287,24 @@ const
   vkDown* = Word(0x28)
   vkF1* = Word(0x70)
   vkF12* = Word(0x7B)
+  vkDelete* = Word(0x2E)
+  vkInsert* = Word(0x2D)
+  vkHome* = Word(0x24)
+  vkEnd* = Word(0x23)
+  vkPageUp* = Word(0x21)
+  vkPageDown* = Word(0x22)
+  vkBackspace* = Word(0x08)
+  vkOem1* = Word(0xBA)
+  vkOemPlus* = Word(0xBB)
+  vkOemComma* = Word(0xBC)
+  vkOemMinus* = Word(0xBD)
+  vkOemPeriod* = Word(0xBE)
+  vkOem2* = Word(0xBF)
+  vkOem3* = Word(0xC0)
+  vkOem4* = Word(0xDB)
+  vkOem5* = Word(0xDC)
+  vkOem6* = Word(0xDD)
+  vkOem7* = Word(0xDE)
 
   idcArrowValue* = 32512
   idiApplicationValue* = 32512
@@ -464,8 +482,17 @@ proc shellNotifyIconW*(dwMessage: Dword; lpData: ptr NotifyIconDataW): Bool
 proc createPopupMenu*(): Hmenu
   {.importc: "CreatePopupMenu", header: "windows.h", stdcall.}
 
+proc createMenu*(): Hmenu
+  {.importc: "CreateMenu", header: "windows.h", stdcall.}
+
 proc destroyMenu*(hMenu: Hmenu): Bool
   {.importc: "DestroyMenu", header: "windows.h", stdcall.}
+
+proc setMenu*(hWnd: Hwnd; hMenu: Hmenu): Bool
+  {.importc: "SetMenu", header: "windows.h", stdcall.}
+
+proc drawMenuBar*(hWnd: Hwnd): Bool
+  {.importc: "DrawMenuBar", header: "windows.h", stdcall.}
 
 proc appendMenuW*(hMenu: Hmenu; uFlags: Uint; uIDNewItem: UintPtr;
     lpNewItem: Lpcwstr): Bool

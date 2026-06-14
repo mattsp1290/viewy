@@ -23,8 +23,9 @@ else:
   doAssert nativeBackend.bindFn != nil
   doAssert nativeBackend.unbind != nil
   doAssert nativeBackend.resolve != nil
-  doAssert nativeBackend.caps == {capScheme, capTray}
+  doAssert nativeBackend.caps == {capScheme, capMenu, capTray}
   doAssert nativeBackend.registerSchemeImpl != nil
+  doAssert nativeBackend.setAppMenuImpl != nil
   doAssert nativeBackend.trayCreateImpl != nil
   doAssert nativeBackend.trayUpdateImpl != nil
   doAssert nativeBackend.trayDestroyImpl != nil
@@ -34,6 +35,8 @@ else:
     if handle != nil:
       proc trayCb(id: string) {.gcsafe.} =
         discard id
+      proc menuCb(id: string) {.gcsafe.} =
+        discard id
 
       nativeBackend.setTitle(handle, "Viewy")
       nativeBackend.setSize(handle, 800, 600, whNone)
@@ -41,6 +44,21 @@ else:
       nativeBackend.setHtml(handle, "<!doctype html><title>Viewy</title>")
       nativeBackend.init(handle, "window.__viewyInit = true;")
       nativeBackend.eval(handle, "window.__viewyEval = true;")
+      nativeBackend.setAppMenuImpl(handle, @[
+        MenuItem(
+          id: "file",
+          label: "File",
+          kind: miSubmenu,
+          enabled: true,
+          children: @[
+            MenuItem(id: "open", label: "Open", accelerator: "CmdOrCtrl+O",
+              kind: miCommand, enabled: true),
+            MenuItem(kind: miSeparator),
+            MenuItem(id: "quit", label: "Quit", accelerator: "CmdOrCtrl+Q",
+              kind: miCommand, enabled: true),
+          ],
+        ),
+      ], menuCb)
       nativeBackend.trayCreateImpl(handle, TrayOptions(
         id: "main",
         tooltip: "Viewy",

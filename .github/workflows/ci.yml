@@ -137,6 +137,10 @@ jobs:
         if: runner.os == 'Windows'
         run: nim check --hints:off --mm:orc --threads:on -d:nimcheck --path:src tests/native/test_windows_tray.nim
 
+      - name: Check native Windows menu declarations
+        if: runner.os == 'Windows'
+        run: nim check --hints:off --mm:orc --threads:on -d:nimcheck --path:src tests/native/test_windows_menu.nim
+
       - name: Check native Windows IPC declarations
         if: runner.os == 'Windows'
         run: nim check --hints:off --mm:orc --threads:on -d:nimcheck --path:src tests/native/test_windows_ipc.nim
