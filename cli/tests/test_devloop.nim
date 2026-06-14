@@ -57,7 +57,7 @@ import std/os
 import viewy
 
 when defined(viewyDev):
-  import viewy/backend/lite/backend
+  import viewy/backend/select
 
 const revision = "$1"
 
@@ -77,6 +77,10 @@ when isMainModule:
       let h = b.create(false)
       b.setTitle(h, "viewy app")
       b.init(h, viewyRuntimeJs)
+      b.bindFn(h, "viewyDevloopMarker", proc(id, jsonArgs: string) {.gcsafe.} =
+        {.cast(gcsafe).}:
+          appendLine(marker, "hmr:" & jsonArgs)
+      )
       b.navigate(h, viewyDevUrl)
       b.run(h)
       b.destroy(h)
@@ -101,6 +105,23 @@ proc countLinesContaining(path, needle: string): int =
 
 proc writeProbe(path, revision: string) =
   writeFile(path, probeMain(revision))
+
+proc frontendMain(marker: string): string =
+  """
+const marker = "$1";
+document.querySelector("#app")!.innerHTML = '<p id="hmr-marker">' + marker + '</p>';
+
+if (window.__viewy) {
+  window.__viewy.call("viewyDevloopMarker", marker).catch(() => {});
+}
+
+if (import.meta.hot) {
+  import.meta.hot.accept();
+}
+""" % [marker]
+
+proc writeFrontendProbe(path, marker: string) =
+  writeFile(path, frontendMain(marker))
 
 proc startDevProcess(appDir: string): Process =
   startProcess(viewyExe, workingDir = appDir, args = ["dev"],
@@ -200,6 +221,7 @@ suite "viewy dev loop":
 
       let appDir = dir / "devloop-app"
       let mainPath = appDir / "src" / "main.nim"
+      let frontendMainPath = appDir / "src" / "main.ts"
       appBinary = appDir / "build" / exeName("devloop-app-dev")
       vitePattern = "vite --host 127.0.0.1 --strictPort"
 
@@ -213,6 +235,7 @@ suite "viewy dev loop":
       writeFile(appDir / "vite.config.ts", viteConfig)
 
       writeProbe(mainPath, "rev-00")
+      writeFrontendProbe(frontendMainPath, "hmr-rev-00")
       run("npm ci", appDir)
 
       dev = startDevProcess(appDir)
@@ -223,6 +246,13 @@ suite "viewy dev loop":
         "initial app launch")
       assertProcessMatching(appBinary)
       assertHttpContains("http://127.0.0.1:" & $int(port), "</html>")
+      waitFor(proc(): bool = markerText(marker).contains("hmr-rev-00"),
+        "initial frontend marker")
+
+      sleep(1100)
+      writeFrontendProbe(frontendMainPath, "hmr-rev-01")
+      waitFor(proc(): bool = markerText(marker).contains("hmr-rev-01"),
+        "frontend HMR marker update")
 
       for i in 1 .. 10:
         sleep(1100)

@@ -149,17 +149,12 @@ This preserves Vite HMR without per-platform WebSocket rewriting:
   `https://viewy.localhost/`. Dev mode is a live server workflow, not a scheme
   asset workflow.
 
-Current CLI dev builds still force `-d:viewyBackend=lite`; that is the behavior
-`viewy-up0` should change for supported native platforms. The implementation
-should update `cli/src/viewy_cli/dev.nim` and its `cli/tests/test_dev.nim`
-coverage so dev apps compile with the default native backend while still
-passing `-d:viewyDev=<url>`. It should not add template-specific
-`server.hmr.{host,port,protocol}` settings unless a later test proves direct
-navigation is insufficient for a specific Vite/template combination.
-Unsupported platforms may keep using the explicit lite backend until a native
-backend exists. The implementation bead should extend the dev-loop test to
-verify file-touch to visible update-marker behavior under native where CI can
-run it.
+CLI dev builds compile with the default native backend on supported native
+platforms while still passing `-d:viewyDev=<url>`. The templates do not pin
+`server.hmr.{host,port,protocol}` because direct navigation keeps the page on
+the Vite origin. Unsupported platforms keep using the explicit lite backend
+until a native backend exists. The dev-loop test verifies a frontend
+file-touch to update-marker path where CI can run it under a real display.
 
 ## Platform Architecture
 

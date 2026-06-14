@@ -81,7 +81,11 @@ suite "viewy dev":
       )
       let compiled = devCompileCommand(cfg, dir)
       check compiled.command.contains("-d:viewyDev=http://127.0.0.1:5173")
-      check compiled.command.contains("-d:viewyBackend=lite")
+      when defined(linux) or defined(macosx) or defined(windows):
+        check not compiled.command.contains("-d:viewyBackend=lite")
+        check not compiled.command.contains("-d:viewyBackend=native")
+      else:
+        check compiled.command.contains("-d:viewyBackend=lite")
       check not compiled.command.contains("-d:debug")
       check compiled.command.contains("--mm:orc --threads:on")
       check compiled.binaryPath.contains("build" / "demo-dev")

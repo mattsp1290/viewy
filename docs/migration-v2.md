@@ -57,8 +57,8 @@ falling back.
 
 At this stage, `-d:viewyBackend=native` is implemented for Linux, macOS, and
 Windows. Use `-d:viewyBackend=lite` only when you need the compatibility
-backend. Production `scheme` builds select native on supported platforms;
-`viewy dev` still uses lite until the native HMR follow-up lands.
+backend. Production `scheme` builds and `viewy dev` use the default native
+backend on supported platforms.
 
 Windows native status:
 
