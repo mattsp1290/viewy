@@ -16,6 +16,20 @@ the handle after `run` returns. Each lane runs the binary under a 120-second
 Python watchdog. Linux installs `libgtk-3-dev` and `libwebkit2gtk-4.1-dev`; the
 workflow must not skip because `DISPLAY` is present under Xvfb.
 
+## Linux tray gap
+
+GitHub-hosted Linux runners do not provide a StatusNotifierItem/AppIndicator
+host. CI can verify the native Linux backend's AppIndicator soft-dependency
+probe, including graceful omission of `capTray` when the runtime library is
+unavailable. It cannot verify tray create/update/destroy against a real shell
+host, or the positive shell integration path where the tray icon is visible,
+the user opens the tray menu, and menu item activation dispatches ids.
+
+Treat that visible-tray path as manual QA owned by
+[docs/qa-checklist.md](qa-checklist.md). Run it in KDE or in GNOME with an
+enabled StatusNotifier/AppIndicator extension before releasing Linux tray
+changes.
+
 ## Windows fallback decision
 
 Windows hosted runners are expected to provide the Edge WebView2 Runtime. If

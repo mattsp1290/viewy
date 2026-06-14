@@ -23,6 +23,11 @@ Baseline:
 - Tray host: KDE has a visible SNI/AppIndicator host by default; GNOME tray
   tests require an enabled StatusNotifier/AppIndicator extension or equivalent
   host.
+- CI gap: GitHub-hosted Linux runners do not provide a StatusNotifierItem host,
+  so automated Linux CI covers AppIndicator soft-dependency probing and
+  graceful capability degradation only. It does not prove tray
+  create/update/destroy behavior, that a tray icon is visible, or that a user
+  can open and activate the tray menu.
 - Build: `nim c --mm:orc --threads:on -d:viewyBackend=native <app>.nim`.
 
 Window lifecycle and IPC:
