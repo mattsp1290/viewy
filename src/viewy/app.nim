@@ -208,3 +208,19 @@ proc hideWindow*(app: App) =
   doAssert app.handle != nil, "hideWindow requires a running app"
   app.requireAppBackendCap(capWindowVisibility, "hideWindow")
   app.backend.hideWindowImpl(app.handle)
+
+proc showContextMenu*(app: App; options: ContextMenuOptions;
+    cb: MenuCallback) =
+  ## Show a native context menu for the running app.
+  ##
+  ## `x`/`y` in `options` are window-relative coordinates. Backends invoke
+  ## `cb` on their UI thread when a menu item dispatches.
+  doAssert app.handle != nil, "showContextMenu requires a running app"
+  doAssert not cb.isNil, "showContextMenu callback must not be nil"
+  app.requireAppBackendCap(capContextMenu, "showContextMenu")
+  app.backend.showContextMenuImpl(app.handle, options, cb)
+
+proc showContextMenu*(app: App; menu: seq[MenuItem]; x, y: int;
+    cb: MenuCallback) =
+  ## Show a native context menu at a window-relative point.
+  app.showContextMenu(ContextMenuOptions(menu: menu, x: x, y: y), cb)

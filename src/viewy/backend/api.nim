@@ -31,6 +31,7 @@ type
     ## whether native-only behavior is available on the selected backend.
     capScheme
     capMenu
+    capContextMenu
     capTray
     capWindowEvents
     capWindowVisibility
@@ -84,6 +85,12 @@ type
     ## Callback invoked on the backend UI thread when a backend dispatches a
     ## menu or tray menu item id. The id must be a Nim-owned copy of the native
     ## event payload.
+
+  ContextMenuOptions* = object
+    ## Backend-neutral context menu request.
+    menu*: seq[MenuItem]
+    x*: int
+    y*: int
 
   TrayOptions* = object
     ## Backend-neutral system tray configuration.
@@ -199,6 +206,13 @@ type
       ## The backend invokes `cb` later on the backend UI thread only, with the
       ## dispatched item id copied into a Nim-owned string before invocation.
 
+    showContextMenuImpl*: proc(h: BackendHandle; options: ContextMenuOptions;
+        cb: MenuCallback) {.closure.}
+      ## Main thread only. Show a backend-owned context menu for the active
+      ## window/webview at the requested window-relative point. The backend
+      ## invokes `cb` later on the backend UI thread only, with the dispatched
+      ## item id copied into a Nim-owned string before invocation.
+
     trayCreateImpl*: proc(h: BackendHandle; options: TrayOptions;
         cb: MenuCallback) {.closure.}
       ## Main thread only. Create a native tray item for this backend handle.
@@ -232,14 +246,14 @@ const selectedBackend* {.strdefine: "viewyBackend".} = "native"
 
 when selectedBackend == "native":
   when defined(macosx):
-    const selectedBackendCaps*: set[Capability] = {capScheme, capMenu, capTray,
-        capWindowEvents, capWindowVisibility}
+    const selectedBackendCaps*: set[Capability] = {capScheme, capMenu,
+        capContextMenu, capTray, capWindowEvents, capWindowVisibility}
   elif defined(linux):
-    const selectedBackendCaps*: set[Capability] = {capScheme, capMenu, capTray,
-        capWindowVisibility}
+    const selectedBackendCaps*: set[Capability] = {capScheme, capMenu,
+        capContextMenu, capTray, capWindowVisibility}
   elif defined(windows):
-    const selectedBackendCaps*: set[Capability] = {capScheme, capMenu, capTray,
-        capWindowVisibility}
+    const selectedBackendCaps*: set[Capability] = {capScheme, capMenu,
+        capContextMenu, capTray, capWindowVisibility}
   else:
     const selectedBackendCaps*: set[Capability] = {}
 elif selectedBackend == "lite":
@@ -263,6 +277,9 @@ proc requireBackendCap*(backend: Backend; cap: Capability; operation: string) =
   of capMenu:
     doAssert backend.setAppMenuImpl != nil,
         "capMenu requires a setAppMenu vtable slot"
+  of capContextMenu:
+    doAssert backend.showContextMenuImpl != nil,
+        "capContextMenu requires a showContextMenu vtable slot"
   of capTray:
     doAssert backend.trayCreateImpl != nil and backend.trayUpdateImpl != nil and
         backend.trayDestroyImpl != nil,
@@ -287,6 +304,13 @@ template setAppMenu*(backend: Backend; h: BackendHandle; menu: seq[MenuItem];
   let b = backend
   requireBackendCap(b, capMenu, "setAppMenu")
   b.setAppMenuImpl(h, menu, cb)
+
+template showContextMenu*(backend: Backend; h: BackendHandle;
+    options: ContextMenuOptions; cb: MenuCallback) =
+  requireSelectedBackendCap(capContextMenu, "showContextMenu")
+  let b = backend
+  requireBackendCap(b, capContextMenu, "showContextMenu")
+  b.showContextMenuImpl(h, options, cb)
 
 template trayCreate*(backend: Backend; h: BackendHandle; options: TrayOptions;
     cb: MenuCallback) =

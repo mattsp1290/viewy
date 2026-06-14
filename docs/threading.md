@@ -62,18 +62,18 @@ There are two callback domains, and they use different ownership rules:
   termination are cross-thread paths. They must use typed unmanaged payloads
   (`dispatchEval`, `dispatchResolve`, `dispatchTerminate`) and top-level
   `{.cdecl, gcsafe.}` callbacks. Only bytes and plain fields cross.
-- UI-thread backend callbacks such as custom scheme handlers, menu/tray item
-  dispatch, and window lifecycle events may invoke Nim closures with
+- UI-thread backend callbacks such as custom scheme handlers, menu/context
+  menu/tray item dispatch, and window lifecycle events may invoke Nim closures with
   Nim-managed request/response values only when the native event has already
   been copied onto the backend UI thread. If a platform receives one of those
   native events on another thread, that platform backend must first perform an
   unmanaged handoff to the UI thread, then build the Nim `AssetRequest`,
-  `MenuItem` id, or `WindowEvent` there.
+  menu item id, or `WindowEvent` there.
 
-Backend implementations must not mix these models. Scheme/menu/window callback
-APIs are ergonomic Nim closures at the UI-thread boundary; they are not a
-permission to move those closures or their captured state across native worker
-threads.
+Backend implementations must not mix these models. Scheme/menu/context
+menu/window callback APIs are ergonomic Nim closures at the UI-thread boundary;
+they are not a permission to move those closures or their captured state across
+native worker threads.
 
 ## Payload shape
 

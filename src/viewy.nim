@@ -5,8 +5,10 @@
 
 import viewy/[app, rpc, events, assets, assets_served, menu, runtime_js]
 export app, rpc, events, assets, assets_served, menu, runtime_js
-from viewy/backend/api import WindowEvent, WindowEventKind
-export WindowEvent, WindowEventKind
+from viewy/backend/api import ContextMenuOptions, MenuCallback, MenuItem,
+    MenuItemKind, WindowEvent, WindowEventKind
+export ContextMenuOptions, MenuCallback, MenuItem, MenuItemKind, WindowEvent,
+    WindowEventKind
 
 const viewyVersion* = "0.1.0"
   ## Library version, kept in sync with viewy.nimble.

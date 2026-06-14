@@ -54,7 +54,8 @@ static:
           """
 import viewy/backend/api
 static:
-  doAssert selectedBackendCaps == {capScheme, capMenu, capTray, capWindowVisibility}
+  doAssert selectedBackendCaps == {capScheme, capMenu, capContextMenu, capTray,
+      capWindowVisibility}
 """, "--os:linux -d:viewyBackend=native")
       checkpoint output
       check exitCode == 0
@@ -64,7 +65,8 @@ static:
           """
 import viewy/backend/api
 static:
-  doAssert selectedBackendCaps == {capScheme, capMenu, capTray, capWindowEvents, capWindowVisibility}
+  doAssert selectedBackendCaps == {capScheme, capMenu, capContextMenu, capTray,
+      capWindowEvents, capWindowVisibility}
 """, "--os:macosx -d:viewyBackend=native")
       checkpoint output
       check exitCode == 0
@@ -74,7 +76,8 @@ static:
           """
 import viewy/backend/api
 static:
-  doAssert selectedBackendCaps == {capScheme, capMenu, capTray, capWindowVisibility}
+  doAssert selectedBackendCaps == {capScheme, capMenu, capContextMenu, capTray,
+      capWindowVisibility}
 """, "--os:windows -d:viewyBackend=native")
       checkpoint output
       check exitCode == 0

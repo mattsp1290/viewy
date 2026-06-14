@@ -9,6 +9,7 @@ var
   schemeSeen = ""
   assetPathSeen = ""
   menuIds: seq[string]
+  contextMenuIds: seq[string]
   trayIds: seq[string]
   windowEvents: seq[WindowEventKind]
   terminated = false
@@ -48,6 +49,15 @@ proc fakeSetAppMenu(h: BackendHandle; menu: seq[MenuItem];
   doAssert menu[0].children[0].accelerator == "CmdOrCtrl+Q"
   cb(menu[0].children[0].id)
 
+proc fakeShowContextMenu(h: BackendHandle; options: ContextMenuOptions;
+    cb: MenuCallback) =
+  doAssert h == fakeHandle
+  doAssert options.x == 12
+  doAssert options.y == 34
+  doAssert options.menu.len == 1
+  doAssert options.menu[0].kind == miCommand
+  cb(options.menu[0].id)
+
 proc fakeTrayCreate(h: BackendHandle; options: TrayOptions;
     cb: MenuCallback) =
   doAssert h == fakeHandle
@@ -79,9 +89,11 @@ proc fakeHideWindow(h: BackendHandle) =
 let fakeBackend = Backend(
   create: fakeCreate,
   dispatchTerminate: fakeDispatchTerminate,
-  caps: {capScheme, capMenu, capTray, capWindowEvents, capWindowVisibility},
+  caps: {capScheme, capMenu, capContextMenu, capTray, capWindowEvents,
+      capWindowVisibility},
   registerSchemeImpl: fakeRegisterScheme,
   setAppMenuImpl: fakeSetAppMenu,
+  showContextMenuImpl: fakeShowContextMenu,
   trayCreateImpl: fakeTrayCreate,
   trayUpdateImpl: fakeTrayUpdate,
   trayDestroyImpl: fakeTrayDestroy,
@@ -126,6 +138,17 @@ proc handleMenu(id: string) {.gcsafe.} =
   {.cast(gcsafe).}:
     menuIds.add id
 
+let contextMenu = ContextMenuOptions(
+  menu: @[MenuItem(id: "inspect", label: "Inspect", kind: miCommand,
+      enabled: true)],
+  x: 12,
+  y: 34,
+)
+
+proc handleContextMenu(id: string) {.gcsafe.} =
+  {.cast(gcsafe).}:
+    contextMenuIds.add id
+
 let tray = TrayOptions(
   id: "main",
   tooltip: "Viewy",
@@ -147,6 +170,7 @@ proc handleWindowEvent(event: WindowEvent) {.gcsafe.} =
 when selectedBackend == "native":
   registerScheme(fakeBackend, h, "viewy", handleAsset)
   setAppMenu(fakeBackend, h, menu, handleMenu)
+  showContextMenu(fakeBackend, h, contextMenu, handleContextMenu)
   trayCreate(fakeBackend, h, tray, handleTray)
   trayUpdate(fakeBackend, h, "main", tray)
   trayDestroy(fakeBackend, h, "main")
@@ -174,10 +198,22 @@ when selectedBackend == "native":
     incompleteTrayAsserted = true
   doAssert incompleteTrayAsserted
 
+  let incompleteContextMenuBackend = Backend(
+    caps: {capContextMenu},
+  )
+  var incompleteContextMenuAsserted = false
+  try:
+    incompleteContextMenuBackend.showContextMenu(h, contextMenu,
+      handleContextMenu)
+  except AssertionDefect:
+    incompleteContextMenuAsserted = true
+  doAssert incompleteContextMenuAsserted
+
 doAssert capScheme in fakeBackend.caps
 doAssert fakeBackend.dispatchTerminate != nil
 doAssert fakeBackend.registerSchemeImpl != nil
 doAssert fakeBackend.setAppMenuImpl != nil
+doAssert fakeBackend.showContextMenuImpl != nil
 doAssert fakeBackend.trayCreateImpl != nil
 doAssert fakeBackend.trayUpdateImpl != nil
 doAssert fakeBackend.trayDestroyImpl != nil
@@ -189,6 +225,7 @@ when selectedBackend == "native":
   doAssert schemeSeen == "viewy"
   doAssert assetPathSeen == "/index.html"
   doAssert menuIds == @["quit"]
+  doAssert contextMenuIds == @["inspect"]
   doAssert trayIds == @["main", "show", "main:updated", "main:destroyed"]
   doAssert windowEvents == @[weResize]
   doAssert hidden
@@ -199,6 +236,7 @@ doAssert liteBackend.caps == {}
 doAssert liteBackend.dispatchTerminate != nil
 doAssert liteBackend.registerSchemeImpl == nil
 doAssert liteBackend.setAppMenuImpl == nil
+doAssert liteBackend.showContextMenuImpl == nil
 doAssert liteBackend.trayCreateImpl == nil
 doAssert liteBackend.trayUpdateImpl == nil
 doAssert liteBackend.trayDestroyImpl == nil
@@ -241,6 +279,18 @@ let backend = Backend(
 
 backend.setAppMenu(nil, @[], proc(id: string) = discard)
 """, "setAppMenu requires a backend capability")
+
+assertLiteCapGate("context_menu_fail", """
+import viewy/backend/api
+
+let backend = Backend(
+  caps: {capContextMenu},
+  showContextMenuImpl: proc(h: BackendHandle; options: ContextMenuOptions;
+      cb: MenuCallback) = discard,
+)
+
+backend.showContextMenu(nil, ContextMenuOptions(), proc(id: string) = discard)
+""", "showContextMenu requires a backend capability")
 
 assertLiteCapGate("tray_fail", """
 import viewy/backend/api

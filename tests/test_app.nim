@@ -28,6 +28,8 @@ var
   navigatedTo = ""
   registeredScheme = ""
   registeredAssetPath = ""
+  contextMenuIds: seq[string]
+  contextMenuPoint: tuple[x, y: int]
   showCount = 0
   hideCount = 0
   boundNames: seq[string]
@@ -35,6 +37,7 @@ var
   resolvedIds: seq[string]
   resolvedOk: seq[bool]
   resolvedJson: seq[string]
+  runHook: proc()
 
 let fakeHandle = cast[BackendHandle](0x2)
 
@@ -56,6 +59,8 @@ proc fakeRun(h: BackendHandle) =
       boundCallbacks[i]("rpc-sync", "[2]")
     elif name == "slowAddOne":
       boundCallbacks[i]("rpc-async", "[4]")
+  if not runHook.isNil:
+    runHook()
 
 proc fakeTerminate(h: BackendHandle) {.gcsafe.} =
   discard h
@@ -111,6 +116,13 @@ proc fakeRegisterScheme(h: BackendHandle; scheme: string;
   doAssert response.status == 200
   registeredAssetPath = response.body
 
+proc fakeShowContextMenu(h: BackendHandle; options: ContextMenuOptions;
+    cb: MenuCallback) =
+  doAssert h == fakeHandle
+  doAssert options.menu.len == 1
+  contextMenuPoint = (options.x, options.y)
+  cb(options.menu[0].id)
+
 proc fakeSetHtml(h: BackendHandle; html: string) =
   doAssert h == fakeHandle
   htmlSeen = html
@@ -151,8 +163,9 @@ let fakeBackend = Backend(
   bindFn: fakeBindFn,
   unbind: fakeUnbind,
   resolve: fakeResolve,
-  caps: {capScheme, capWindowVisibility},
+  caps: {capScheme, capContextMenu, capWindowVisibility},
   registerSchemeImpl: fakeRegisterScheme,
+  showContextMenuImpl: fakeShowContextMenu,
   showWindowImpl: fakeShowWindow,
   hideWindowImpl: fakeHideWindow,
 )
@@ -175,6 +188,8 @@ proc resetState() =
   navigatedTo = ""
   registeredScheme = ""
   registeredAssetPath = ""
+  contextMenuIds.setLen 0
+  contextMenuPoint = (0, 0)
   showCount = 0
   hideCount = 0
   boundNames.setLen 0
@@ -182,6 +197,7 @@ proc resetState() =
   resolvedIds.setLen 0
   resolvedOk.setLen 0
   resolvedJson.setLen 0
+  runHook = nil
 
 proc resolvedJsonFor(id: string): string =
   for i, item in resolvedIds:
@@ -211,6 +227,23 @@ doAssert hideCount == 0
 doAssert boundNames == @["addOne", "slowAddOne"]
 doAssert resolvedJsonFor("rpc-sync").fromJson(int) == 3
 doAssert resolvedJsonFor("rpc-async").fromJson(int) == 5
+
+resetState()
+
+let contextApp = newApp(title = "Context", html = "<main>context</main>",
+    backend = fakeBackend)
+runHook = proc() =
+  contextApp.showContextMenu(@[MenuItem(id: "copy", label: "Copy",
+      kind: miCommand, enabled: true)], 21, 42,
+    proc(id: string) {.gcsafe.} =
+      {.cast(gcsafe).}:
+        contextMenuIds.add id
+  )
+contextApp.run()
+
+doAssert destroyed
+doAssert contextMenuPoint == (21, 42)
+doAssert contextMenuIds == @["copy"]
 
 resetState()
 

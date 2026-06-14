@@ -30,6 +30,8 @@ else:
   doAssert capScheme in nativeBackend.caps
   doAssert capMenu in nativeBackend.caps
   doAssert nativeBackend.setAppMenuImpl != nil
+  doAssert capContextMenu notin nativeBackend.caps
+  doAssert nativeBackend.showContextMenuImpl == nil
   doAssert capWindowVisibility in nativeBackend.caps
   doAssert nativeBackend.showWindowImpl != nil
   doAssert nativeBackend.hideWindowImpl != nil
