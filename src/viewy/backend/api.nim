@@ -1,5 +1,11 @@
-## Backend abstraction (spec section 4.1): the minimal vtable-style
-## interface every backend must satisfy.
+## Backend abstraction (spec section 4.1): the minimal vtable-style interface
+## every backend must satisfy.
+##
+## INTERFACE FREEZE: viewy-9lo / 2026-06-14
+## The exported types, capabilities, and vtable slots in this module are frozen
+## for Windows native backend work. If Windows discovers that pure-Nim COM
+## cannot implement a slot as specified, file an interface-change RFC bead that
+## re-opens the gate instead of editing this module opportunistically.
 
 type
   BackendHandle* = pointer
@@ -220,8 +226,10 @@ when selectedBackend == "native":
   when defined(macosx):
     const selectedBackendCaps*: set[Capability] = {capScheme, capMenu, capTray,
         capWindowEvents}
-  else:
+  elif defined(linux):
     const selectedBackendCaps*: set[Capability] = {capScheme}
+  else:
+    const selectedBackendCaps*: set[Capability] = {}
 elif selectedBackend == "lite":
   const selectedBackendCaps*: set[Capability] = {}
 else:
