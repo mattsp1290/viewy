@@ -93,6 +93,17 @@ suite "viewy cli e2e":
         check plist.contains("<true/>")
         runGeneratedApp(bundledBinary, appDir)
         run("codesign --verify --deep " & quote(appBundle), appDir)
+      when defined(windows):
+        let
+          manifest = appDir / "build" / "demo-app.manifest"
+          rc = appDir / "build" / "demo-app.rc"
+          manifestText = readFile(manifest)
+        check fileExists(manifest)
+        check fileExists(rc)
+        check manifestText.startsWith("<?xml")
+        check manifestText.contains("<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersion=\"1.0\">")
+        check manifestText.contains("<dpiAwareness xmlns=\"http://schemas.microsoft.com/SMI/2016/WindowsSettings\">PerMonitorV2</dpiAwareness>")
+        check manifestText.contains("<dpiAware xmlns=\"http://schemas.microsoft.com/SMI/2005/WindowsSettings\">true/pm</dpiAware>")
     finally:
       if hadTemplateRoot:
         putEnv("VIEWY_TEMPLATE_ROOT", oldTemplateRoot)
