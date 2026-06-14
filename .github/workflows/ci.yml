@@ -109,6 +109,13 @@ jobs:
         if: runner.os == 'macOS'
         run: nim c --hints:off --mm:orc --threads:on -r tests/native/test_darwin_glue.nim
 
+      - name: Check native macOS backend lifecycle
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p build
+          nim c --hints:off --mm:orc --threads:on -o:build/test_darwin_backend tests/native/test_darwin_backend.nim
+          VIEWY_NATIVE_DARWIN_SMOKE=1 build/test_darwin_backend
+
       - name: Check native Linux backend lifecycle
         if: runner.os == 'Linux'
         run: |

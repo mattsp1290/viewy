@@ -21,7 +21,7 @@ doAssert backend.caps == {}
     checkpoint output
     check exitCode == 0
 
-  test "native selection exports Linux backend on Linux":
+  test "native selection exports platform backend on Linux and macOS":
     let (output, exitCode) = nimCheck("""
 import viewy/backend/select
 let backend = newBackend()
@@ -31,12 +31,12 @@ doAssert backend.run != nil
 doAssert backend.terminate != nil
 doAssert backend.dispatchTerminate != nil
 """)
-    when defined(linux):
+    when defined(linux) or defined(macosx):
       checkpoint output
       check exitCode == 0
     else:
       check exitCode != 0
-      check output.contains("viewyBackend=native currently requires Linux")
+      check output.contains("viewyBackend=native currently requires Linux or macOS")
 
   test "native selection rejects gtk4 flag":
     let (output, exitCode) = nimCheck("""
