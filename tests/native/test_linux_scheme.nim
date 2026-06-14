@@ -68,7 +68,7 @@ else:
       report.spaText.indexOf("assets/app.js") >= 0 &&
       report.missingStatus === 404 &&
       report.postStatus === 200 &&
-      report.postText === "x=1||text/plain" &&
+      report.postText === "x=1|payload|text/plain" &&
       report.rangeStatus === 206 &&
       report.rangeHeader === "bytes 0-5/24" &&
       report.rangeEncoding === null &&
@@ -146,7 +146,7 @@ else:
     let report = parseJson(reportJson)
     doAssert report["ok"].getBool, reportJson
     doAssert echoQuery == "x=1"
-    doAssert echoBody == ""
+    doAssert echoBody == "payload"
     doAssert rangeSeen
 
   echo "ok: linux native scheme declarations"

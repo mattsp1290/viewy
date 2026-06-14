@@ -15,6 +15,7 @@ import zippy
 export api
 
 const nativeHandlerName = "viewy"
+const maxSchemeRequestBodyBytes = 10 * 1024 * 1024
 
 type
   LinuxBackendError* = object of CatchableError
@@ -456,15 +457,17 @@ proc contentLength(headers: openArray[Header]): int =
     0
 
 proc requestBody(request: ptr WebKitURISchemeRequest; byteLimit: int): string =
-  if byteLimit <= 0:
-    return ""
   let stream = webkitUriSchemeRequestGetHttpBody(request)
   if stream == nil:
     return ""
 
   var error: ptr GError
   var buffer: array[4096, char]
-  var remaining = byteLimit
+  var remaining =
+    if byteLimit > 0:
+      min(byteLimit, maxSchemeRequestBodyBytes)
+    else:
+      maxSchemeRequestBodyBytes
   while remaining > 0:
     let chunk = min(buffer.len, remaining)
     let count = gInputStreamRead(stream, addr buffer[0], chunk.GSize, nil,
@@ -481,6 +484,10 @@ proc requestBody(request: ptr WebKitURISchemeRequest; byteLimit: int): string =
     result.setLen(oldLen + count.int)
     copyMem(addr result[oldLen], addr buffer[0], count.int)
     remaining.dec count.int
+  if byteLimit <= 0 and remaining == 0:
+    gObjectUnref(stream)
+    raise newException(LinuxBackendError,
+        "webkit_uri_scheme_request_get_http_body exceeded maximum size")
   gObjectUnref(stream)
 
 proc schemeTextResponse(status: int; statusText, body: string): AssetResponse =
@@ -505,6 +512,7 @@ proc normalizeSchemeResponse(response: AssetResponse): AssetResponse =
   try:
     result.body = uncompress(response.body)
     result.headers = response.headers.withoutHeader("Content-Encoding")
+    result.headers = result.headers.withoutHeader("Content-Length")
   except CatchableError:
     discard
 

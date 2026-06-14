@@ -28,6 +28,10 @@ else:
   doAssert nativeBackend.resolve != nil
   doAssert nativeBackend.caps == {capScheme}
   doAssert nativeBackend.registerSchemeImpl != nil
+  doAssert capTray notin nativeBackend.caps
+  doAssert nativeBackend.trayCreateImpl == nil
+  doAssert nativeBackend.trayUpdateImpl == nil
+  doAssert nativeBackend.trayDestroyImpl == nil
 
   when defined(nimcheck):
     let handle = cast[BackendHandle](0x7)

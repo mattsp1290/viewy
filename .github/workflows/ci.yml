@@ -119,6 +119,23 @@ jobs:
           nim c --hints:off --mm:orc --threads:on -o:build/test_linux_scheme tests/native/test_linux_scheme.nim
           VIEWY_NATIVE_LINUX_SCHEME=1 xvfb-run -a build/test_linux_scheme
 
+      - name: Check native Linux Tier-2 windowed suite
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          for test in \
+            test_windowed \
+            test_async_rpc \
+            test_backend_handoff \
+            test_backend_teardown \
+            test_emit_stress
+          do
+            nim c --hints:off --mm:orc --threads:on -d:viewyBackend=native -o:build/${test}_native tests/${test}.nim
+            xvfb-run -a build/${test}_native
+          done
+
       - name: Create build directory
         run: python -c "import os; os.makedirs('build', exist_ok=True)"
 
