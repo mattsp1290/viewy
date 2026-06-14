@@ -10,5 +10,5 @@ from viewy/backend/api import ContextMenuOptions, MenuCallback, MenuItem,
 export ContextMenuOptions, MenuCallback, MenuItem, MenuItemKind, WindowEvent,
     WindowEventKind
 
-const viewyVersion* = "0.1.0"
+const viewyVersion* = "0.2.0"
   ## Library version, kept in sync with viewy.nimble.

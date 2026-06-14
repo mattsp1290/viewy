@@ -1,6 +1,6 @@
 # Package
 
-version = "0.1.0"
+version = "0.2.0"
 author = "Matt Spurlin"
 description = "A Tauri/Wails-style desktop app framework for Nim"
 license = "MIT"

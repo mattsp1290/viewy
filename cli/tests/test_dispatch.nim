@@ -2,6 +2,12 @@ import std/[os, strutils, tempfiles, unittest]
 
 import viewy_cli/dispatch
 
+proc nimbleVersion(path: string): string =
+  for line in readFile(path).splitLines:
+    if line.startsWith("version"):
+      return line.split('"')[1]
+  ""
+
 suite "viewy dispatch":
   test "defaults to help":
     let cmd = parseCommand([])
@@ -12,6 +18,15 @@ suite "viewy dispatch":
     check parseCommand(["-h"]).kind == ckHelp
     check parseCommand(["--version"]).kind == ckVersion
     check parseCommand(["-v"]).kind == ckVersion
+
+  test "reports cli package version":
+    let version = nimbleVersion("cli/viewy_cli.nimble")
+    check version != ""
+    check CliVersion == version
+
+    let result = runCli(["--version"])
+    check result.exitCode == 0
+    check result.output == "viewy " & version
 
   test "parses init with template":
     let cmd = parseCommand(["init", "demo", "--template", "vanilla"])

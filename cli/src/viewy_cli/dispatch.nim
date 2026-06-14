@@ -7,7 +7,7 @@ import dev
 import doctor
 import init
 
-const CliVersion* = "0.1.0"
+const CliVersion* = "0.2.0"
 
 type
   CommandKind* = enum
