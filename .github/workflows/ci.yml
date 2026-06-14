@@ -467,6 +467,8 @@ jobs:
             timeout 240s xvfb-run -a valgrind \
               --tool=memcheck \
               --error-exitcode=99 \
+              --trace-children=yes \
+              --trace-children-skip='*/xvfb-run,*/Xvfb,*/xauth,*/dbus-launch,*/dbus-daemon' \
               --leak-check=full \
               --show-leak-kinds=definite \
               --errors-for-leak-kinds=definite \
