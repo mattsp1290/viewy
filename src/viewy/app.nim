@@ -19,6 +19,7 @@ type
     width: int
     height: int
     resizable: bool
+    initiallyVisible: bool
     debug: bool
     assets: AssetMode
     assetHandler: ServedAssetHandler
@@ -33,7 +34,7 @@ type
 proc newApp*(title = "viewy"; width = 1024; height = 768;
     resizable = true; assets = defaultAssetMode; html = defaultEmbeddedHtml;
     assetHandler: ServedAssetHandler = nil; devUrl = "http://localhost:5173";
-        debug = false;
+        debug = false; initiallyVisible = true;
     backend = newBackend()): App =
   ## Create an app configuration.
   ##
@@ -54,6 +55,7 @@ proc newApp*(title = "viewy"; width = 1024; height = 768;
     width: width,
     height: height,
     resizable: resizable,
+    initiallyVisible: initiallyVisible,
     debug: debug,
     assets: assets,
     assetHandler: assetHandler,
@@ -106,7 +108,7 @@ proc bindWindowEvents(app: App) =
   app.requireAppBackendCap(capWindowEvents, "onWindowEvent")
   app.backend.onWindowEventImpl(app.handle,
     proc(event: WindowEvent) {.gcsafe.} =
-      app.dispatchWindowEvent(event)
+    app.dispatchWindowEvent(event)
   )
 
 proc run*(app: App) =
@@ -155,6 +157,9 @@ proc run*(app: App) =
       of assetsEmbedded:
         let html = if app.html == defaultEmbeddedHtml: embeddedHtml() else: app.html
         app.backend.setHtml(app.handle, html)
+    if not app.initiallyVisible:
+      app.requireAppBackendCap(capWindowVisibility, "hideWindow")
+      app.backend.hideWindowImpl(app.handle)
     app.backend.run(app.handle)
   finally:
     if app.handle != nil:
@@ -187,3 +192,19 @@ proc on*(app: App; kind: WindowEventKind; cb: WindowEventHandler) =
     if event.kind == kind:
       cb(event)
   )
+
+proc showWindow*(app: App) =
+  ## Show the app's backing native window. Call after `run` has created the
+  ## backend handle, typically from a UI-thread native callback such as a tray
+  ## menu item.
+  doAssert app.handle != nil, "showWindow requires a running app"
+  app.requireAppBackendCap(capWindowVisibility, "showWindow")
+  app.backend.showWindowImpl(app.handle)
+
+proc hideWindow*(app: App) =
+  ## Hide the app's backing native window without terminating the app. Call
+  ## after `run` has created the backend handle, typically from a UI-thread
+  ## native callback such as a tray menu item.
+  doAssert app.handle != nil, "hideWindow requires a running app"
+  app.requireAppBackendCap(capWindowVisibility, "hideWindow")
+  app.backend.hideWindowImpl(app.handle)

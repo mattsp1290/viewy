@@ -635,10 +635,29 @@ ViewyDarwinWindow *viewy_darwin_window_create(ViewyDarwinApp *app,
     box.window.contentView = box.webView;
     box.window.delegate = box;
     [box.window center];
-    [box.window makeKeyAndOrderFront:nil];
 
     window->box = box;
     return window;
+  }
+}
+
+void viewy_darwin_window_show(ViewyDarwinWindow *window) {
+  if (!window || !window->box || !window->box.window) {
+    return;
+  }
+  @autoreleasepool {
+    [NSApp activateIgnoringOtherApps:YES];
+    [window->box.window deminiaturize:nil];
+    [window->box.window makeKeyAndOrderFront:nil];
+  }
+}
+
+void viewy_darwin_window_hide(ViewyDarwinWindow *window) {
+  if (!window || !window->box || !window->box.window) {
+    return;
+  }
+  @autoreleasepool {
+    [window->box.window orderOut:nil];
   }
 }
 

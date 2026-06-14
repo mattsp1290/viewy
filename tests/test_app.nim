@@ -28,6 +28,8 @@ var
   navigatedTo = ""
   registeredScheme = ""
   registeredAssetPath = ""
+  showCount = 0
+  hideCount = 0
   boundNames: seq[string]
   boundCallbacks: seq[BindCallback]
   resolvedIds: seq[string]
@@ -81,6 +83,14 @@ proc fakeSetTitle(h: BackendHandle; title: string) =
 proc fakeSetSize(h: BackendHandle; width, height: int; hints: WindowHints) =
   doAssert h == fakeHandle
   sizeSeen = (width, height, hints)
+
+proc fakeShowWindow(h: BackendHandle) =
+  doAssert h == fakeHandle
+  inc showCount
+
+proc fakeHideWindow(h: BackendHandle) =
+  doAssert h == fakeHandle
+  inc hideCount
 
 proc fakeNavigate(h: BackendHandle; url: string) =
   doAssert h == fakeHandle
@@ -141,8 +151,10 @@ let fakeBackend = Backend(
   bindFn: fakeBindFn,
   unbind: fakeUnbind,
   resolve: fakeResolve,
-  caps: {capScheme},
+  caps: {capScheme, capWindowVisibility},
   registerSchemeImpl: fakeRegisterScheme,
+  showWindowImpl: fakeShowWindow,
+  hideWindowImpl: fakeHideWindow,
 )
 
 let compileOnlyAssetHandler =
@@ -163,6 +175,8 @@ proc resetState() =
   navigatedTo = ""
   registeredScheme = ""
   registeredAssetPath = ""
+  showCount = 0
+  hideCount = 0
   boundNames.setLen 0
   boundCallbacks.setLen 0
   resolvedIds.setLen 0
@@ -192,6 +206,8 @@ doAssert sizeSeen == (640, 480, whFixed)
 doAssert initSeen == viewyRuntimeJs
 doAssert htmlSeen == "<main>hello</main>"
 doAssert navigatedTo == ""
+doAssert showCount == 0
+doAssert hideCount == 0
 doAssert boundNames == @["addOne", "slowAddOne"]
 doAssert resolvedJsonFor("rpc-sync").fromJson(int) == 3
 doAssert resolvedJsonFor("rpc-async").fromJson(int) == 5
@@ -213,6 +229,17 @@ emptyHtmlApp.run()
 doAssert destroyed
 doAssert htmlSeen == ""
 doAssert navigatedTo == ""
+
+resetState()
+
+let hiddenApp = newApp(title = "Hidden", initiallyVisible = false,
+    html = "<main>hidden</main>", backend = fakeBackend)
+hiddenApp.run()
+
+doAssert destroyed
+doAssert htmlSeen == "<main>hidden</main>"
+doAssert hideCount == 1
+doAssert showCount == 0
 
 resetState()
 

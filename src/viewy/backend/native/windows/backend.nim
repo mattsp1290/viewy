@@ -36,6 +36,7 @@ type
     mainThreadId: int
     closed: bool
     comInitialized: bool
+    windowVisible: bool
     hwnd: Hwnd
     owner: pointer
 
@@ -1419,6 +1420,7 @@ proc create(debug: bool): BackendHandle =
         "native Windows backend create failed: out of memory")
   shared.mainThreadId = getThreadId()
   shared.comInitialized = true
+  shared.windowVisible = true
   initLock(shared.lock)
 
   let state = WindowsState(shared: shared, debug: debug, pending: @[],
@@ -1467,8 +1469,9 @@ proc run(h: BackendHandle) =
   let state = h.toState
   state.assertUiThread
   state.requireOpen("GetMessageW")
-  discard showWindow(state.shared.hwnd, swShow)
-  discard updateWindow(state.shared.hwnd)
+  if state.shared.windowVisible:
+    discard showWindow(state.shared.hwnd, swShow)
+    discard updateWindow(state.shared.hwnd)
   var msg: Msg
   while getMessageW(addr msg, nil, 0, 0) != winFalse:
     if state.hAccel != nil and translateAcceleratorW(state.shared.hwnd,
@@ -1485,6 +1488,21 @@ proc terminate(h: BackendHandle) {.gcsafe.} =
   {.cast(gcsafe).}:
     state.closeFromUiThread()
   postQuitMessage(0)
+
+proc showNativeWindow(h: BackendHandle) =
+  let state = h.toState
+  state.assertUiThread
+  state.requireOpen("ShowWindow")
+  state.shared.windowVisible = true
+  discard showWindow(state.shared.hwnd, swRestore)
+  discard updateWindow(state.shared.hwnd)
+
+proc hideNativeWindow(h: BackendHandle) =
+  let state = h.toState
+  state.assertUiThread
+  state.requireOpen("ShowWindow")
+  state.shared.windowVisible = false
+  discard showWindow(state.shared.hwnd, swHide)
 
 proc dispatch(h: BackendHandle; fn: DispatchProc) {.gcsafe.} =
   let state = block:
@@ -1796,10 +1814,12 @@ proc newBackend*(): Backend =
     bindFn: bindFn,
     unbind: unbind,
     resolve: resolve,
-    caps: {capScheme, capMenu, capTray},
+    caps: {capScheme, capMenu, capTray, capWindowVisibility},
     registerSchemeImpl: registerScheme,
     setAppMenuImpl: setAppMenu,
     trayCreateImpl: trayCreate,
     trayUpdateImpl: trayUpdate,
     trayDestroyImpl: trayDestroy,
+    showWindowImpl: showNativeWindow,
+    hideWindowImpl: hideNativeWindow,
   )

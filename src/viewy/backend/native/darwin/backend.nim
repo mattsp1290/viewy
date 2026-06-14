@@ -44,6 +44,7 @@ type
     app: ptr ViewyDarwinApp
     window: ptr ViewyDarwinWindow
     owner: pointer
+    windowVisible: bool
 
   DarwinState = ref object
     shared: ptr SharedState
@@ -128,6 +129,10 @@ proc viewyDarwinWindowCreate(app: ptr ViewyDarwinApp;
     importc: "viewy_darwin_window_create", header: "glue.h".}
 proc viewyDarwinWindowDestroy(window: ptr ViewyDarwinWindow) {.
     importc: "viewy_darwin_window_destroy", header: "glue.h".}
+proc viewyDarwinWindowShow(window: ptr ViewyDarwinWindow) {.
+    importc: "viewy_darwin_window_show", header: "glue.h".}
+proc viewyDarwinWindowHide(window: ptr ViewyDarwinWindow) {.
+    importc: "viewy_darwin_window_hide", header: "glue.h".}
 proc viewyDarwinWindowSetTitle(window: ptr ViewyDarwinWindow; title: cstring) {.
     importc: "viewy_darwin_window_set_title", header: "glue.h".}
 proc viewyDarwinWindowSetSize(window: ptr ViewyDarwinWindow; width, height,
@@ -547,20 +552,22 @@ proc create(debug: bool): BackendHandle =
   if shared == nil:
     raise newException(DarwinBackendError, "darwin backend create failed: out of memory")
   shared.mainThreadId = getThreadId()
+  shared.windowVisible = true
   initLock(shared.lock)
   shared.app = viewyDarwinAppCreate()
   if shared.app == nil:
     deinitLock(shared.lock)
     deallocShared(shared)
     raise newException(DarwinBackendError, "viewy_darwin_app_create failed")
-  shared.window = viewyDarwinWindowCreate(shared.app, if debug: 1'i32 else: 0'i32)
+  shared.window = viewyDarwinWindowCreate(shared.app,
+      if debug: 1'i32 else: 0'i32)
   if shared.window == nil:
     viewyDarwinAppDestroy(shared.app)
     deinitLock(shared.lock)
     deallocShared(shared)
     raise newException(DarwinBackendError, "viewy_darwin_window_create failed")
-  let state = DarwinState(shared: shared, bindings: @[], schemes: @[], trays: @[],
-      dispatches: @[])
+  let state = DarwinState(shared: shared, bindings: @[], schemes: @[], trays: @[
+    ], dispatches: @[])
   shared.owner = cast[pointer](state)
   viewyDarwinSetEventCallback(shared.window, eventCb, cast[pointer](state))
   GC_ref(state)
@@ -602,6 +609,8 @@ proc destroy(h: BackendHandle) =
 proc run(h: BackendHandle) =
   let state = h.toState
   state.assertUiThread
+  if state.shared.windowVisible:
+    viewyDarwinWindowShow(state.shared.window)
   viewyDarwinAppRun(state.shared.app)
 
 proc terminate(h: BackendHandle) {.gcsafe.} =
@@ -644,8 +653,8 @@ proc dispatchResolve(h: BackendHandle; id: string; ok: bool;
   acquire(shared.lock)
   try:
     shared.requireOpen("darwin dispatch")
-    viewyDarwinAppDispatch(shared.app, handoffCb, newPayload(shared, hkResolve, id,
-        jsonResult, ok))
+    viewyDarwinAppDispatch(shared.app, handoffCb, newPayload(shared, hkResolve,
+        id, jsonResult, ok))
   finally:
     release(shared.lock)
 
@@ -664,6 +673,20 @@ proc setTitle(h: BackendHandle; title: string) =
 proc setSize(h: BackendHandle; width, height: int; hints: WindowHints) =
   viewyDarwinWindowSetSize(h.toState.shared.window, width.int32, height.int32,
       ord(hints).int32)
+
+proc showNativeWindow(h: BackendHandle) =
+  let state = h.toState
+  state.assertUiThread
+  state.shared.requireOpen("viewy_darwin_window_show")
+  state.shared.windowVisible = true
+  viewyDarwinWindowShow(state.shared.window)
+
+proc hideNativeWindow(h: BackendHandle) =
+  let state = h.toState
+  state.assertUiThread
+  state.shared.requireOpen("viewy_darwin_window_hide")
+  state.shared.windowVisible = false
+  viewyDarwinWindowHide(state.shared.window)
 
 proc navigate(h: BackendHandle; url: string) =
   viewyDarwinWindowNavigate(h.toState.shared.window, url.cstring)
@@ -684,8 +707,8 @@ proc bindFn(h: BackendHandle; name: string; cb: BindCallback) =
     raise newException(DarwinBackendError,
         "native macOS bind failed: duplicate binding " & name)
   if not state.handlerRegistered:
-    if viewyDarwinSetMessageHandler(state.shared.window, nativeHandlerName, messageCb,
-        cast[pointer](state)) == 0:
+    if viewyDarwinSetMessageHandler(state.shared.window, nativeHandlerName,
+        messageCb, cast[pointer](state)) == 0:
       raise newException(DarwinBackendError,
           "viewy_darwin_set_message_handler failed")
   state.handlerRegistered = true
@@ -722,8 +745,8 @@ proc registerScheme(h: BackendHandle; scheme: string; handler: AssetHandler) =
   state.schemes.add SchemeRegistration(scheme: scheme, handler: handler)
 
 proc resolve(h: BackendHandle; id: string; ok: bool; jsonResult: string) =
-  viewyDarwinResolve(h.toState.shared.window, id.cstring, (if ok: 1'i32 else: 0'i32),
-      jsonResult.cstring)
+  viewyDarwinResolve(h.toState.shared.window, id.cstring, (
+      if ok: 1'i32 else: 0'i32), jsonResult.cstring)
 
 proc onWindowEvent(h: BackendHandle; cb: WindowEventCallback) =
   h.toState.eventCallback = cb
@@ -796,11 +819,13 @@ proc newBackend*(): Backend =
     bindFn: bindFn,
     unbind: unbind,
     resolve: resolve,
-    caps: {capScheme, capMenu, capTray, capWindowEvents},
+    caps: {capScheme, capMenu, capTray, capWindowEvents, capWindowVisibility},
     registerSchemeImpl: registerScheme,
     setAppMenuImpl: setAppMenu,
     trayCreateImpl: trayCreate,
     trayUpdateImpl: trayUpdate,
     trayDestroyImpl: trayDestroy,
     onWindowEventImpl: onWindowEvent,
+    showWindowImpl: showNativeWindow,
+    hideWindowImpl: hideNativeWindow,
   )

@@ -25,9 +25,9 @@ on operating system names.
 | Backend selection | Platform | Capabilities |
 | --- | --- | --- |
 | `-d:viewyBackend=lite` | all supported platforms | none |
-| `-d:viewyBackend=native` | Linux | `capScheme`, `capTray` selected at compile time; runtime `caps` includes `capTray` only when AppIndicator loads |
-| `-d:viewyBackend=native` | macOS | `capScheme`, `capMenu`, `capTray`, `capWindowEvents` |
-| `-d:viewyBackend=native` | Windows | `capScheme`, `capMenu`, `capTray` |
+| `-d:viewyBackend=native` | Linux | `capScheme`, `capWindowVisibility`, `capTray` selected at compile time; runtime `caps` includes `capTray` only when AppIndicator loads |
+| `-d:viewyBackend=native` | macOS | `capScheme`, `capMenu`, `capTray`, `capWindowEvents`, `capWindowVisibility` |
+| `-d:viewyBackend=native` | Windows | `capScheme`, `capMenu`, `capTray`, `capWindowVisibility` |
 | `-d:viewyBackend=native` | unsupported platforms | none; backend construction fails at compile time |
 
 This matrix is intentionally capability-based. Windows menu/tray work, Linux
@@ -70,6 +70,7 @@ Capability-gated slots:
 - `capMenu` requires `setAppMenuImpl`.
 - `capTray` requires `trayCreateImpl`, `trayUpdateImpl`, and `trayDestroyImpl`.
 - `capWindowEvents` requires `onWindowEventImpl`.
+- `capWindowVisibility` requires `showWindowImpl` and `hideWindowImpl`.
 
 All synchronous slots are UI-thread operations. Worker-safe slots must copy
 payloads into unmanaged storage before crossing threads, then reconstruct
@@ -148,7 +149,9 @@ tray calls. The runtime backend advertises `capTray` only when the AppIndicator
 shared library can be loaded. If it is absent, tray vtable slots remain nil and
 the backend capability check fails before tray creation. GNOME sessions still
 need a StatusNotifier/AppIndicator extension or equivalent tray host for the
-icon to be visible.
+icon to be visible. Linux also supports `capWindowVisibility` via GTK
+show/hide calls, including start-hidden apps that call `hideWindow` before
+entering the GTK main loop.
 
 ### macOS
 
@@ -162,8 +165,8 @@ Objective-C glue under `src/viewy/backend/native/darwin/`.
 - The backend uses `WKWebView`, `WKUserContentController`,
   `WKURLSchemeHandler`, `NSMenu`, and `NSStatusItem`.
 
-macOS currently advertises `capScheme`, `capMenu`, `capTray`, and
-`capWindowEvents`.
+macOS currently advertises `capScheme`, `capMenu`, `capTray`,
+`capWindowEvents`, and `capWindowVisibility`.
 
 ### Windows
 
@@ -183,13 +186,13 @@ The Windows native backend is a hand-written Win32/WebView2 implementation under
 - `backend.nim` owns the Win32 window, message loop, WebView2 handles, binding
   callbacks, virtual-host scheme handling, and typed handoff payloads.
 
-Windows currently advertises `capScheme`, `capMenu`, and `capTray`. IPC and
-init-script parity are implemented with `AddScriptToExecuteOnDocumentCreated`
-and `WebMessageReceived`. Scheme mode maps to `https://viewy.localhost/`
-through WebView2 `WebResourceRequested`. Menu support uses HMENU menu bars with
-ACCEL-table accelerators. Tray support uses `Shell_NotifyIconW` with Win32
-popup menus and updates icons through the same tray update slot used for
-light/dark icon swaps.
+Windows currently advertises `capScheme`, `capMenu`, `capTray`, and
+`capWindowVisibility`. IPC and init-script parity are implemented with
+`AddScriptToExecuteOnDocumentCreated` and `WebMessageReceived`. Scheme mode
+maps to `https://viewy.localhost/` through WebView2 `WebResourceRequested`.
+Menu support uses HMENU menu bars with ACCEL-table accelerators. Tray support
+uses `Shell_NotifyIconW` with Win32 popup menus and updates icons through the
+same tray update slot used for light/dark icon swaps.
 
 The Windows FFI surface intentionally remains hand-written. The `winim`
 dependency decision and future acceptance threshold are recorded in
@@ -260,6 +263,7 @@ The frozen backend contract has these parts:
   - `capTray` requires `trayCreateImpl`, `trayUpdateImpl`, and
     `trayDestroyImpl`.
   - `capWindowEvents` requires `onWindowEventImpl`.
+  - `capWindowVisibility` requires `showWindowImpl` and `hideWindowImpl`.
 - Shared payload types: `AssetRequest`, `AssetResponse`, `Header`,
   `MenuItem`, `TrayOptions`, `WindowEvent`, and their callback types.
 
@@ -273,13 +277,14 @@ objects must not cross those thread boundaries directly.
 Selected backend capability gates are also part of the contract. Current gates:
 
 - `-d:viewyBackend=lite` advertises no native capabilities.
-- `-d:viewyBackend=native` on Linux advertises `capScheme` and `capTray` at
-  compile time. Runtime `newBackend().caps` includes `capTray` only when
-  `libayatana-appindicator3` or legacy `libappindicator3` can be loaded.
+- `-d:viewyBackend=native` on Linux advertises `capScheme`, `capTray`, and
+  `capWindowVisibility` at compile time. Runtime `newBackend().caps` includes
+  `capTray` only when `libayatana-appindicator3` or legacy `libappindicator3`
+  can be loaded.
 - `-d:viewyBackend=native` on macOS advertises `capScheme`, `capMenu`,
-  `capTray`, and `capWindowEvents`.
-- `-d:viewyBackend=native` on Windows advertises `capScheme`, `capMenu`, and
-  `capTray`.
+  `capTray`, `capWindowEvents`, and `capWindowVisibility`.
+- `-d:viewyBackend=native` on Windows advertises `capScheme`, `capMenu`,
+  `capTray`, and `capWindowVisibility`.
 - `-d:viewyBackend=native` on unsupported platforms advertises no capabilities;
   importing `viewy/backend/select` and calling `newBackend()` fails at compile
   time until that platform backend lands.

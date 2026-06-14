@@ -33,6 +33,7 @@ type
     capMenu
     capTray
     capWindowEvents
+    capWindowVisibility
 
   Header* = tuple[name, value: string]
     ## HTTP-style header pair used by asset scheme requests and responses.
@@ -218,6 +219,13 @@ type
       ## events received on other threads must hop through an unmanaged handoff
       ## before callback invocation.
 
+    showWindowImpl*: proc(h: BackendHandle) {.closure.}
+      ## Main thread only. Show the backing native window.
+
+    hideWindowImpl*: proc(h: BackendHandle) {.closure.}
+      ## Main thread only. Hide the backing native window without terminating
+      ## the backend event loop.
+
 const selectedBackend* {.strdefine: "viewyBackend".} = "native"
   ## Compile-time backend selection used by public APIs to reject capabilities
   ## the selected backend cannot provide.
@@ -225,11 +233,13 @@ const selectedBackend* {.strdefine: "viewyBackend".} = "native"
 when selectedBackend == "native":
   when defined(macosx):
     const selectedBackendCaps*: set[Capability] = {capScheme, capMenu, capTray,
-        capWindowEvents}
+        capWindowEvents, capWindowVisibility}
   elif defined(linux):
-    const selectedBackendCaps*: set[Capability] = {capScheme, capTray}
+    const selectedBackendCaps*: set[Capability] = {capScheme, capTray,
+        capWindowVisibility}
   elif defined(windows):
-    const selectedBackendCaps*: set[Capability] = {capScheme, capMenu, capTray}
+    const selectedBackendCaps*: set[Capability] = {capScheme, capMenu, capTray,
+        capWindowVisibility}
   else:
     const selectedBackendCaps*: set[Capability] = {}
 elif selectedBackend == "lite":
@@ -260,6 +270,9 @@ proc requireBackendCap*(backend: Backend; cap: Capability; operation: string) =
   of capWindowEvents:
     doAssert backend.onWindowEventImpl != nil,
         "capWindowEvents requires an onWindowEvent vtable slot"
+  of capWindowVisibility:
+    doAssert backend.showWindowImpl != nil and backend.hideWindowImpl != nil,
+        "capWindowVisibility requires showWindow and hideWindow vtable slots"
 
 template registerScheme*(backend: Backend; h: BackendHandle; scheme: string;
     handler: AssetHandler) =
@@ -301,3 +314,15 @@ template onWindowEvent*(backend: Backend; h: BackendHandle;
   let b = backend
   requireBackendCap(b, capWindowEvents, "onWindowEvent")
   b.onWindowEventImpl(h, cb)
+
+template showWindow*(backend: Backend; h: BackendHandle) =
+  requireSelectedBackendCap(capWindowVisibility, "showWindow")
+  let b = backend
+  requireBackendCap(b, capWindowVisibility, "showWindow")
+  b.showWindowImpl(h)
+
+template hideWindow*(backend: Backend; h: BackendHandle) =
+  requireSelectedBackendCap(capWindowVisibility, "hideWindow")
+  let b = backend
+  requireBackendCap(b, capWindowVisibility, "hideWindow")
+  b.hideWindowImpl(h)

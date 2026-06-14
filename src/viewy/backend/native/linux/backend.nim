@@ -31,6 +31,7 @@ type
     manager: ptr WebKitUserContentManager
     webviewWidget: ptr GtkWidget
     webview: ptr WebKitWebView
+    windowVisible: bool
 
   SchemeRegistration = ref object
     scheme: string
@@ -712,6 +713,7 @@ proc create(debug: bool): BackendHandle =
     manager: manager,
     webviewWidget: webviewWidget,
     webview: webview,
+    windowVisible: true,
   )
   initLock(shared.lock)
 
@@ -742,7 +744,8 @@ proc run(h: BackendHandle) =
   let state = h.toState
   state.assertUiThread
   state.requireOpen("gtk_main")
-  gtkWidgetShowAll(state.shared.window)
+  if state.shared.windowVisible:
+    gtkWidgetShowAll(state.shared.window)
   gtkMain()
 
 proc terminate(h: BackendHandle) {.gcsafe.} =
@@ -855,6 +858,21 @@ proc setSize(h: BackendHandle; width, height: int; hints: WindowHints) =
     gtkWindowSetGeometryHints(window, nil, addr geometry, mask)
   gtkWindowSetDefaultSize(window, cint(width), cint(height))
   gtkWindowResize(window, cint(width), cint(height))
+
+proc showNativeWindow(h: BackendHandle) =
+  let state = h.toState
+  state.assertUiThread
+  state.requireOpen("gtk_widget_show_all")
+  state.shared.windowVisible = true
+  gtkWidgetShowAll(state.shared.window)
+  gtkWindowPresent(cast[ptr GtkWindow](state.shared.window))
+
+proc hideNativeWindow(h: BackendHandle) =
+  let state = h.toState
+  state.assertUiThread
+  state.requireOpen("gtk_widget_hide")
+  state.shared.windowVisible = false
+  gtkWidgetHide(state.shared.window)
 
 proc navigate(h: BackendHandle; url: string) =
   let state = h.toState
@@ -1145,7 +1163,7 @@ proc trayDestroy(h: BackendHandle; id: string) =
   state.removeTray(id)
 
 proc newBackend*(): Backend =
-  var caps = {capScheme}
+  var caps = {capScheme, capWindowVisibility}
   let trayAvailable = appIndicatorAvailable()
   if trayAvailable:
     caps.incl capTray
@@ -1169,6 +1187,8 @@ proc newBackend*(): Backend =
     resolve: resolve,
     caps: caps,
     registerSchemeImpl: registerScheme,
+    showWindowImpl: showNativeWindow,
+    hideWindowImpl: hideNativeWindow,
   )
   if trayAvailable:
     result.trayCreateImpl = trayCreate

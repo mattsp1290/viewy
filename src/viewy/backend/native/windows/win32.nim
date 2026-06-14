@@ -250,6 +250,7 @@ const
 
   swHide* = Int(0)
   swShow* = Int(5)
+  swRestore* = Int(9)
 
   wmCreate* = Uint(0x0001)
   wmDestroy* = Uint(0x0002)

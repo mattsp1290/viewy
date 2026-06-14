@@ -62,6 +62,12 @@ else:
   proc viewyDarwinWindowInitScript(window: ptr ViewyDarwinWindow;
       js: cstring) {.importc: "viewy_darwin_window_init_script",
       header: "../../src/viewy/backend/native/darwin/glue.h".}
+  proc viewyDarwinWindowShow(window: ptr ViewyDarwinWindow) {.
+      importc: "viewy_darwin_window_show",
+      header: "../../src/viewy/backend/native/darwin/glue.h".}
+  proc viewyDarwinWindowHide(window: ptr ViewyDarwinWindow) {.
+      importc: "viewy_darwin_window_hide",
+      header: "../../src/viewy/backend/native/darwin/glue.h".}
   proc viewyDarwinSetMessageHandler(window: ptr ViewyDarwinWindow;
       handlerName: cstring; callback: ViewyDarwinMessageCallback;
       userdata: pointer): int32 {.
@@ -133,6 +139,8 @@ else:
   doAssert declared(viewyDarwinSetMessageHandler)
   doAssert declared(viewyDarwinClearMessageHandler)
   doAssert declared(viewyDarwinResolve)
+  doAssert declared(viewyDarwinWindowShow)
+  doAssert declared(viewyDarwinWindowHide)
   doAssert declared(viewyDarwinSetEventCallback)
   doAssert declared(viewyDarwinSetAppMenu)
   doAssert declared(viewyDarwinTrayCreate)
@@ -150,6 +158,8 @@ else:
   viewyDarwinWindowNavigate(nil, "about:blank")
   viewyDarwinWindowEval(nil, "void 0")
   viewyDarwinWindowInitScript(nil, "void 0")
+  viewyDarwinWindowShow(nil)
+  viewyDarwinWindowHide(nil)
   doAssert viewyDarwinSetMessageHandler(nil, "viewy", messageCallback, nil) == 0
   viewyDarwinClearMessageHandler(nil, "viewy")
   viewyDarwinResolve(nil, "1", 1, "true")

@@ -23,12 +23,14 @@ else:
   doAssert nativeBackend.bindFn != nil
   doAssert nativeBackend.unbind != nil
   doAssert nativeBackend.resolve != nil
-  doAssert nativeBackend.caps == {capScheme, capMenu, capTray}
+  doAssert nativeBackend.caps == {capScheme, capMenu, capTray, capWindowVisibility}
   doAssert nativeBackend.registerSchemeImpl != nil
   doAssert nativeBackend.setAppMenuImpl != nil
   doAssert nativeBackend.trayCreateImpl != nil
   doAssert nativeBackend.trayUpdateImpl != nil
   doAssert nativeBackend.trayDestroyImpl != nil
+  doAssert nativeBackend.showWindowImpl != nil
+  doAssert nativeBackend.hideWindowImpl != nil
 
   when defined(nimcheck):
     var handle: BackendHandle
@@ -40,6 +42,8 @@ else:
 
       nativeBackend.setTitle(handle, "Viewy")
       nativeBackend.setSize(handle, 800, 600, whNone)
+      nativeBackend.hideWindowImpl(handle)
+      nativeBackend.showWindowImpl(handle)
       nativeBackend.navigate(handle, "https://example.test/")
       nativeBackend.setHtml(handle, "<!doctype html><title>Viewy</title>")
       nativeBackend.init(handle, "window.__viewyInit = true;")
@@ -56,8 +60,8 @@ else:
             MenuItem(kind: miSeparator),
             MenuItem(id: "quit", label: "Quit", accelerator: "CmdOrCtrl+Q",
               kind: miCommand, enabled: true),
-          ],
-        ),
+        ],
+      ),
       ], menuCb)
       nativeBackend.trayCreateImpl(handle, TrayOptions(
         id: "main",

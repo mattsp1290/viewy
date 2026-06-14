@@ -25,13 +25,16 @@ else:
   doAssert nativeBackend.bindFn != nil
   doAssert nativeBackend.unbind != nil
   doAssert nativeBackend.resolve != nil
-  doAssert nativeBackend.caps == {capScheme, capMenu, capTray, capWindowEvents}
+  doAssert nativeBackend.caps == {capScheme, capMenu, capTray, capWindowEvents,
+      capWindowVisibility}
   doAssert nativeBackend.onWindowEventImpl != nil
   doAssert nativeBackend.registerSchemeImpl != nil
   doAssert nativeBackend.setAppMenuImpl != nil
   doAssert nativeBackend.trayCreateImpl != nil
   doAssert nativeBackend.trayUpdateImpl != nil
   doAssert nativeBackend.trayDestroyImpl != nil
+  doAssert nativeBackend.showWindowImpl != nil
+  doAssert nativeBackend.hideWindowImpl != nil
 
   if getEnv("VIEWY_NATIVE_DARWIN_SMOKE") == "1":
     let h = nativeBackend.create(false)
@@ -39,12 +42,15 @@ else:
     nativeBackend.dispatch(h, proc() {.gcsafe.} =
       dispatched = true
     )
-    nativeBackend.bindFn(h, "viewySmoke", proc(id, jsonArgs: string) {.gcsafe.} =
+    nativeBackend.bindFn(h, "viewySmoke", proc(id,
+        jsonArgs: string) {.gcsafe.} =
       discard id
       discard jsonArgs
     )
     nativeBackend.setTitle(h, "Viewy Darwin native smoke")
     nativeBackend.setSize(h, 320, 240, whMin)
+    nativeBackend.hideWindow(h)
+    nativeBackend.showWindow(h)
     nativeBackend.setHtml(h, "<!doctype html><p>viewy native macOS</p>")
     nativeBackend.setAppMenu(h, @[MenuItem(
       id: "app",

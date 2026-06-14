@@ -19,6 +19,7 @@ var
   backend = newBackend()
   handle: BackendHandle
   useTemplateIcon = false
+  windowVisible = false
 
 proc platformColorIcon(): string =
   when defined(windows) or defined(macosx):
@@ -34,6 +35,13 @@ proc platformTemplateIcon(): string =
 
 proc trayMenu(): seq[MenuItem] =
   result = @[]
+  result.add MenuItem(
+    id: if windowVisible: "hide-window" else: "show-window",
+    label: if windowVisible: "Hide window" else: "Show window",
+    kind: miCommand,
+    enabled: true,
+  )
+  result.add MenuItem(kind: miSeparator)
   when defined(linux):
     result.add MenuItem(
       id: "toggle-icon",
@@ -73,6 +81,14 @@ proc onTray(id: string) {.gcsafe.} =
     case id
     of "toggle-icon":
       useTemplateIcon = not useTemplateIcon
+      updateTray()
+    of "show-window":
+      windowVisible = true
+      backend.showWindow(handle)
+      updateTray()
+    of "hide-window":
+      windowVisible = false
+      backend.hideWindow(handle)
       updateTray()
     of "quit":
       backend.dispatchTerminate(handle)
@@ -129,7 +145,7 @@ const html = """
   <body>
     <main>
       <h1>viewy tray</h1>
-      <p>The native tray menu can dispatch commands and quit the app.</p>
+      <p>The app starts hidden. Use the native tray menu to show the window, switch icon mode on Linux, or quit.</p>
     </main>
   </body>
 </html>
@@ -149,6 +165,7 @@ try:
   backend.setTitle(handle, trayTitle)
   backend.setSize(handle, 460, 280, whMin)
   backend.setHtml(handle, html.strip())
+  backend.hideWindow(handle)
   backend.trayCreate(handle, trayOptions(), onTray)
   backend.run(handle)
 finally:

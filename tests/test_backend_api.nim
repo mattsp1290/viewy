@@ -12,6 +12,8 @@ var
   trayIds: seq[string]
   windowEvents: seq[WindowEventKind]
   terminated = false
+  shown = false
+  hidden = false
 
 proc fakeCreate(debug: bool): BackendHandle =
   doAssert not debug
@@ -66,16 +68,26 @@ proc fakeOnWindowEvent(h: BackendHandle; cb: WindowEventCallback) =
   doAssert h == fakeHandle
   cb(WindowEvent(kind: weResize, width: 640, height: 480))
 
+proc fakeShowWindow(h: BackendHandle) =
+  doAssert h == fakeHandle
+  shown = true
+
+proc fakeHideWindow(h: BackendHandle) =
+  doAssert h == fakeHandle
+  hidden = true
+
 let fakeBackend = Backend(
   create: fakeCreate,
   dispatchTerminate: fakeDispatchTerminate,
-  caps: {capScheme, capMenu, capTray, capWindowEvents},
+  caps: {capScheme, capMenu, capTray, capWindowEvents, capWindowVisibility},
   registerSchemeImpl: fakeRegisterScheme,
   setAppMenuImpl: fakeSetAppMenu,
   trayCreateImpl: fakeTrayCreate,
   trayUpdateImpl: fakeTrayUpdate,
   trayDestroyImpl: fakeTrayDestroy,
   onWindowEventImpl: fakeOnWindowEvent,
+  showWindowImpl: fakeShowWindow,
+  hideWindowImpl: fakeHideWindow,
 )
 
 let h = fakeBackend.create(false)
@@ -139,6 +151,8 @@ when selectedBackend == "native":
   trayUpdate(fakeBackend, h, "main", tray)
   trayDestroy(fakeBackend, h, "main")
   onWindowEvent(fakeBackend, h, handleWindowEvent)
+  hideWindow(fakeBackend, h)
+  showWindow(fakeBackend, h)
 
   var missingSchemeCapBackend = fakeBackend
   missingSchemeCapBackend.caps = {}
@@ -168,6 +182,8 @@ doAssert fakeBackend.trayCreateImpl != nil
 doAssert fakeBackend.trayUpdateImpl != nil
 doAssert fakeBackend.trayDestroyImpl != nil
 doAssert fakeBackend.onWindowEventImpl != nil
+doAssert fakeBackend.showWindowImpl != nil
+doAssert fakeBackend.hideWindowImpl != nil
 doAssert terminated
 when selectedBackend == "native":
   doAssert schemeSeen == "viewy"
@@ -175,6 +191,8 @@ when selectedBackend == "native":
   doAssert menuIds == @["quit"]
   doAssert trayIds == @["main", "show", "main:updated", "main:destroyed"]
   doAssert windowEvents == @[weResize]
+  doAssert hidden
+  doAssert shown
 
 let liteBackend = newBackend()
 doAssert liteBackend.caps == {}
@@ -185,6 +203,8 @@ doAssert liteBackend.trayCreateImpl == nil
 doAssert liteBackend.trayUpdateImpl == nil
 doAssert liteBackend.trayDestroyImpl == nil
 doAssert liteBackend.onWindowEventImpl == nil
+doAssert liteBackend.showWindowImpl == nil
+doAssert liteBackend.hideWindowImpl == nil
 
 proc assertLiteCapGate(name, source, expected: string) =
   let probe = getTempDir() / ("viewy_cap_gate_" & name & ".nim")
@@ -236,5 +256,17 @@ let backend = Backend(
 
 backend.trayCreate(nil, TrayOptions(id: "main"), proc(id: string) = discard)
 """, "trayCreate requires a backend capability")
+
+assertLiteCapGate("hide_window_fail", """
+import viewy/backend/api
+
+let backend = Backend(
+  caps: {capWindowVisibility},
+  showWindowImpl: proc(h: BackendHandle) = discard,
+  hideWindowImpl: proc(h: BackendHandle) = discard,
+)
+
+backend.hideWindow(nil)
+""", "hideWindow requires a backend capability")
 
 echo "ok: backend v2 api types and slots"

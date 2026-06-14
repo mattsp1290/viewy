@@ -44,7 +44,7 @@ doAssert backend.dispatchTerminate != nil
           """
 import viewy/backend/api
 static:
-  doAssert selectedBackendCaps == {capScheme, capTray}
+  doAssert selectedBackendCaps == {capScheme, capTray, capWindowVisibility}
 """, "--os:linux -d:viewyBackend=native")
       checkpoint output
       check exitCode == 0
@@ -54,7 +54,7 @@ static:
           """
 import viewy/backend/api
 static:
-  doAssert selectedBackendCaps == {capScheme, capMenu, capTray, capWindowEvents}
+  doAssert selectedBackendCaps == {capScheme, capMenu, capTray, capWindowEvents, capWindowVisibility}
 """, "--os:macosx -d:viewyBackend=native")
       checkpoint output
       check exitCode == 0
@@ -64,7 +64,7 @@ static:
           """
 import viewy/backend/api
 static:
-  doAssert selectedBackendCaps == {capScheme, capMenu, capTray}
+  doAssert selectedBackendCaps == {capScheme, capMenu, capTray, capWindowVisibility}
 """, "--os:windows -d:viewyBackend=native")
       checkpoint output
       check exitCode == 0
@@ -81,6 +81,7 @@ doAssert backend.dispatchTerminate != nil
 doAssert capScheme in backend.caps
 doAssert capMenu in backend.caps
 doAssert capTray in backend.caps
+doAssert capWindowVisibility in backend.caps
 """, "--os:windows -d:nimcheck -d:viewyBackend=native")
       checkpoint output
       check exitCode == 0

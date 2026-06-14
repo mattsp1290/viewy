@@ -36,6 +36,8 @@ void viewy_darwin_app_dispatch(ViewyDarwinApp *app, void (*fn)(void *),
 ViewyDarwinWindow *viewy_darwin_window_create(ViewyDarwinApp *app,
                                               int32_t debug);
 void viewy_darwin_window_destroy(ViewyDarwinWindow *window);
+void viewy_darwin_window_show(ViewyDarwinWindow *window);
+void viewy_darwin_window_hide(ViewyDarwinWindow *window);
 void viewy_darwin_window_set_title(ViewyDarwinWindow *window,
                                    const char *title);
 void viewy_darwin_window_set_size(ViewyDarwinWindow *window, int32_t width,

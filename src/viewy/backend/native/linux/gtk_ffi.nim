@@ -280,6 +280,9 @@ proc gtkWidgetGetToplevel*(widget: ptr GtkWidget): ptr GtkWidget
 proc gtkWidgetGrabFocus*(widget: ptr GtkWidget)
   {.importc: "gtk_widget_grab_focus", header: "gtk/gtk.h", cdecl.}
 
+proc gtkWidgetHide*(widget: ptr GtkWidget)
+  {.importc: "gtk_widget_hide", header: "gtk/gtk.h", cdecl.}
+
 proc gtkWidgetSetSensitive*(widget: ptr GtkWidget; sensitive: GBoolean)
   {.importc: "gtk_widget_set_sensitive", header: "gtk/gtk.h", cdecl.}
 

@@ -28,6 +28,9 @@ else:
   doAssert nativeBackend.resolve != nil
   doAssert nativeBackend.registerSchemeImpl != nil
   doAssert capScheme in nativeBackend.caps
+  doAssert capWindowVisibility in nativeBackend.caps
+  doAssert nativeBackend.showWindowImpl != nil
+  doAssert nativeBackend.hideWindowImpl != nil
   if capTray in nativeBackend.caps:
     doAssert nativeBackend.trayCreateImpl != nil
     doAssert nativeBackend.trayUpdateImpl != nil
@@ -55,6 +58,8 @@ else:
       """{"error":{"message":"ValueError","type":"ValueError"}}""")
     nativeBackend.dispatch(handle, proc() {.gcsafe.} = discard)
     nativeBackend.dispatchTerminate(handle)
+    nativeBackend.hideWindowImpl(handle)
+    nativeBackend.showWindowImpl(handle)
     if capTray in nativeBackend.caps:
       nativeBackend.trayCreateImpl(handle, TrayOptions(
         id: "main",
