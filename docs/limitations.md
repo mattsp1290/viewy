@@ -20,11 +20,32 @@ The backend abstraction is deliberately narrow. The lite backend
 wraps create/run/destroy, title, size, navigation, HTML injection, JavaScript
 eval/init, binding, unbinding, and promise return. It intentionally does not
 wrap `webview_get_native_handle` or `webview_version`, and there is no API for
-tray, native menus, or custom schemes.
+accessing those lite-specific native handles or version helpers. Capability-
+gated APIs for tray, native menus, and custom schemes exist on the backend
+abstraction, but the lite backend does not implement them.
 
 These are lite-backend limitations, not permanent product goals. Native
 backends add deeper platform integration behind capability gates as each
 platform implementation lands.
+
+## Capability Matrix
+
+Native capabilities are gated twice: `selectedBackendCaps` controls whether an
+API compiles for the selected backend, and `newBackend().caps` controls whether
+the current runtime backend can actually perform the operation. Use the backend
+helpers instead of branching on OS names.
+
+| Backend | Platform | Runtime capabilities |
+| --- | --- | --- |
+| lite | all supported platforms | none |
+| native | Linux | `capScheme`, `capMenu`, `capWindowVisibility`; `capTray` only when `libayatana-appindicator3` or legacy `libappindicator3` loads; no runtime `capContextMenu` yet |
+| native | macOS | `capScheme`, `capMenu`, `capTray`, `capWindowEvents`, `capWindowVisibility`; no runtime `capContextMenu` yet |
+| native | Windows | `capScheme`, `capMenu`, `capTray`, `capWindowVisibility`; no runtime `capContextMenu` yet |
+| native | unsupported platforms | none; backend construction fails at compile time |
+
+Compile-time native selection includes `capContextMenu` on Linux, macOS, and
+Windows so context-menu APIs can be type-checked, but no current native backend
+advertises the capability at runtime until a platform implementation lands.
 
 ## Asset Modes
 
@@ -71,9 +92,18 @@ host must have the target platform development packages installed and runnable.
 
 Build on the operating system you are targeting:
 
-- Linux: GTK and WebKitGTK development packages;
+- Linux native: GTK3 and `webkit2gtk-4.1 >= 2.40`; install `libgtk-3-dev` and
+  `libwebkit2gtk-4.1-dev` on Debian/Ubuntu. Tray support uses
+  `libayatana-appindicator3` or legacy `libappindicator3` as a runtime soft
+  dependency.
+- Linux lite: GTK/WebKitGTK packages selected by the lite backend build probe;
 - macOS: system WebKit and Cocoa frameworks;
-- Windows: MinGW-w64 or MSVC with WebView2 support.
+- Windows native: MinGW-w64 or MSVC plus the Microsoft Edge WebView2 Evergreen
+  Runtime. The WebView2 SDK/COM ABI is vendored and pinned in
+  `vendor/webview2/PIN`.
+- Windows lite: MinGW-w64 or MSVC with the vendored WebView2 SDK pin used by
+  the compatibility backend, plus the Microsoft Edge WebView2 Evergreen
+  Runtime at runtime.
 
 The CI matrix builds and runs windowed lite and native tests on Linux, macOS,
 Windows MinGW, and Windows MSVC. Other compiler/platform combinations are not
