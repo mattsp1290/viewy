@@ -131,7 +131,19 @@ jobs:
 
       - name: Check native Windows scheme declarations
         if: runner.os == 'Windows'
-        run: nim check --hints:off --mm:orc --threads:on -d:nimcheck --path:src tests/native/test_windows_scheme.nim
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -c "import os; os.makedirs('build', exist_ok=True)"
+          nim check --hints:off --mm:orc --threads:on -d:nimcheck --path:src tests/native/test_windows_scheme.nim
+          nim c --hints:off --mm:orc --threads:on -d:viewyBackend=native --path:src -o:build/test_windows_scheme tests/native/test_windows_scheme.nim
+          VIEWY_NATIVE_WINDOWS_SCHEME=1 python - <<'PY'
+          import os
+          import subprocess
+
+          exe = "build/test_windows_scheme.exe" if os.name == "nt" else "build/test_windows_scheme"
+          subprocess.run([exe], check=True, timeout=120)
+          PY
 
       - name: Check native Windows tray declarations
         if: runner.os == 'Windows'
@@ -239,6 +251,44 @@ jobs:
           subprocess.run([f"build/{test}_native_macos"], check=True, timeout=120)
           PY
           done
+
+      - name: Check native Windows Tier-2 windowed suite
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          for test in \
+            test_windowed \
+            test_async_rpc \
+            test_backend_handoff \
+            test_backend_teardown \
+            test_emit_stress
+          do
+            nim c --hints:off --mm:orc --threads:on -d:viewyBackend=native -o:build/${test}_native_windows tests/${test}.nim
+            python - "${test}" <<'PY'
+          import os
+          import subprocess
+          import sys
+
+          test = sys.argv[1]
+          exe = f"build/{test}_native_windows.exe" if os.name == "nt" else f"build/{test}_native_windows"
+          subprocess.run([exe], check=True, timeout=120)
+          PY
+          done
+          nim c --hints:off --mm:orc --threads:on -d:viewyBackend=native -o:build/window_smoke_native_windows tests/spike/window_smoke.nim
+          nim c --hints:off --mm:orc --threads:on -d:viewyBackend=native -d:release -d:viewyGeneratedAssets --path:tests/fixtures/assets_single -o:build/test_assets_single_native_windows tests/test_assets_single.nim
+          python - <<'PY'
+          import os
+          import subprocess
+
+          suffix = ".exe" if os.name == "nt" else ""
+          for exe in [
+              f"build/window_smoke_native_windows{suffix}",
+              f"build/test_assets_single_native_windows{suffix}",
+          ]:
+              subprocess.run([exe], check=True, timeout=120)
+          PY
 
       - name: Create build directory
         run: python -c "import os; os.makedirs('build', exist_ok=True)"
