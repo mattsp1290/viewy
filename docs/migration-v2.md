@@ -55,6 +55,10 @@ through backend feature flags; APIs that require unavailable native features
 fail at compile time or at runtime capability checks instead of silently
 falling back.
 
+At this stage, `-d:viewyBackend=native` is implemented for Linux and macOS.
+Windows native backend work is still pending, so Windows builds should use
+`-d:viewyBackend=lite`.
+
 ## Asset Mode Mapping
 
 `viewy.json` accepts these asset values:
@@ -100,9 +104,10 @@ Before switching an existing app to native/scheme mode, check:
 ## Current Build Notes
 
 The CLI maps `viewy.json` asset values through the runtime asset modes above.
-At this stage, production `scheme` builds use the native backend where that
-path is implemented and fall back to lite elsewhere. Legacy `single` and
-`served` builds continue to select lite.
+At this stage, production `scheme` builds select the native backend on Linux
+and select lite on macOS and Windows. macOS native scheme support exists at the
+backend layer, but the CLI has not switched macOS production scheme builds to
+native yet. Legacy `single` and `served` builds continue to select lite.
 
 This staged behavior lets existing apps keep shipping while native backends
 gain platform-specific scheme, menu, tray, and lifecycle support.
