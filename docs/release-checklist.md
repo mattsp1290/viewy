@@ -6,7 +6,10 @@
 - `cli/viewy_cli.nimble`: `jsony == 1.1.6`, `zippy == 0.10.19`.
 - Examples: `jsony == 1.1.6`, `zippy == 0.10.19`.
 - `vendor/webview/PIN`: upstream `webview/webview` tag `0.12.0`.
-- `vendor/webview2/PIN`: `Microsoft.Web.WebView2` `1.0.4022.49`.
+- `vendor/webview2/PIN`: `Microsoft.Web.WebView2` `1.0.4022.49`;
+  `viewy/backend/windows_webview2_pin.nim` reads this file at compile time and
+  is the shared ABI source for the lite WebView2 builtin implementation and
+  native Windows COM declarations when they land.
 
 ## Name Check
 

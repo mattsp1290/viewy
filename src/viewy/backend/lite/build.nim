@@ -10,7 +10,6 @@ const
   moduleDir = currentSourcePath().parentDir
   repoRoot = moduleDir / ".." / ".." / ".." / ".."
   webviewVendorDir = repoRoot / "vendor" / "webview"
-  webview2VendorDir = repoRoot / "vendor" / "webview2" / "include"
   webviewStub = webviewVendorDir / "webview.cc"
 
 {.passC: "-I" & webviewVendorDir & " -DWEBVIEW_STATIC=1".}
@@ -53,7 +52,9 @@ elif defined(macosx):
   {.passL: "-framework WebKit -framework Cocoa".}
   {.compile(webviewStub, "-x objective-c++ -std=c++14 -DWEBVIEW_STATIC=1").}
 elif defined(windows):
-  {.passC: "-I" & webview2VendorDir &
+  import viewy/backend/windows_webview2_pin
+
+  {.passC: "-I" & webView2SdkIncludeDir &
     " -DWEBVIEW_EDGE=1 -DWEBVIEW_MSWEBVIEW2_BUILTIN_IMPL=1" &
     " -DWEBVIEW_MSWEBVIEW2_EXPLICIT_LINK=1".}
   when defined(vcc):
