@@ -25,13 +25,13 @@ else:
   doAssert nativeBackend.bindFn != nil
   doAssert nativeBackend.unbind != nil
   doAssert nativeBackend.resolve != nil
-  doAssert nativeBackend.caps == {capScheme, capWindowEvents}
+  doAssert nativeBackend.caps == {capScheme, capTray, capWindowEvents}
   doAssert nativeBackend.onWindowEventImpl != nil
   doAssert nativeBackend.registerSchemeImpl != nil
   doAssert nativeBackend.setAppMenuImpl == nil
-  doAssert nativeBackend.trayCreateImpl == nil
-  doAssert nativeBackend.trayUpdateImpl == nil
-  doAssert nativeBackend.trayDestroyImpl == nil
+  doAssert nativeBackend.trayCreateImpl != nil
+  doAssert nativeBackend.trayUpdateImpl != nil
+  doAssert nativeBackend.trayDestroyImpl != nil
 
   if getEnv("VIEWY_NATIVE_DARWIN_SMOKE") == "1":
     let h = nativeBackend.create(false)
@@ -46,6 +46,31 @@ else:
     nativeBackend.setTitle(h, "Viewy Darwin native smoke")
     nativeBackend.setSize(h, 320, 240, whMin)
     nativeBackend.setHtml(h, "<!doctype html><p>viewy native macOS</p>")
+    nativeBackend.trayCreate(h, TrayOptions(
+      id: "main",
+      tooltip: "Viewy",
+      menu: @[MenuItem(id: "quit", label: "Quit", kind: miCommand,
+        enabled: true)]
+    ), proc(id: string) {.gcsafe.} =
+      discard id
+    )
+    nativeBackend.trayUpdate(h, "main", TrayOptions(id: "main",
+      tooltip: "Viewy updated"))
+    nativeBackend.trayCreate(h, TrayOptions(
+      id: "secondary",
+      tooltip: "Viewy secondary",
+      menu: @[MenuItem(id: "show", label: "Show", kind: miCommand,
+        enabled: true)]
+    ), proc(id: string) {.gcsafe.} =
+      discard id
+    )
+    doAssertRaises(DarwinBackendError):
+      nativeBackend.trayCreate(h, TrayOptions(id: "main"), proc(
+          id: string) {.gcsafe.} =
+        discard id
+      )
+    nativeBackend.trayDestroy(h, "secondary")
+    nativeBackend.trayDestroy(h, "main")
     doAssertRaises(DarwinBackendError):
       nativeBackend.registerScheme(h, "late", proc(
           request: AssetRequest): AssetResponse {.gcsafe.} =
