@@ -97,13 +97,14 @@ proc plistValue(value: string): string =
   value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").
     replace("\"", "&quot;").replace("'", "&apos;")
 
-proc emitMacBundle(cfg: ViewyConfig; binaryPath, buildDir: string): string =
+proc emitMacBundle(cfg: ViewyConfig; binaryPath, buildDir: string;
+    exec: ExecProc): string =
   when defined(macosx):
     let appDir = buildDir / (cfg.name & ".app")
     let contents = appDir / "Contents"
     let macos = contents / "MacOS"
     createDir(macos)
-    copyFile(binaryPath, macos / splitFile(binaryPath).name)
+    copyFileWithPermissions(binaryPath, macos / splitFile(binaryPath).name)
     writeFile(contents / "Info.plist", """
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -117,15 +118,19 @@ proc emitMacBundle(cfg: ViewyConfig; binaryPath, buildDir: string): string =
   <string>$3</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
 </dict>
 </plist>
 """ % [splitFile(binaryPath).name.plistValue, cfg.name.plistValue,
       cfg.title.plistValue])
+    exec.checked("codesign --force --deep -s - " & quote(appDir), buildDir)
     result = appDir
   else:
     discard cfg
     discard binaryPath
     discard buildDir
+    discard exec
     result = ""
 
 proc backendDefine(runtimeMode: runtimeAssets.AssetMode): string =
@@ -198,6 +203,6 @@ proc buildApp*(cfg: ViewyConfig; release = false; projectDir = ".";
     "Generated assets: " & generatedAssets & "\n" &
     "Built binary: " & binaryPath & " (" & $getFileSize(binaryPath) & " bytes)"
 
-  let bundlePath = emitMacBundle(cfg, binaryPath, buildDir)
+  let bundlePath = emitMacBundle(cfg, binaryPath, buildDir, exec)
   if bundlePath.len > 0:
     result.add "\nBuilt app bundle: " & bundlePath

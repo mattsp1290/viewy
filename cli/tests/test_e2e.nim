@@ -83,10 +83,16 @@ suite "viewy cli e2e":
           appBundle = appDir / "build" / "demo-app.app"
           contents = appBundle / "Contents"
           macos = contents / "MacOS"
+          bundledBinary = macos / "demo-app"
         check dirExists(appBundle)
         check fileExists(contents / "Info.plist")
-        check fileExists(macos / "demo-app")
-        check readFile(contents / "Info.plist").contains("<string>demo-app</string>")
+        check fileExists(bundledBinary)
+        let plist = readFile(contents / "Info.plist")
+        check plist.contains("<string>demo-app</string>")
+        check plist.contains("<key>NSHighResolutionCapable</key>")
+        check plist.contains("<true/>")
+        runGeneratedApp(bundledBinary, appDir)
+        run("codesign --verify --deep " & quote(appBundle), appDir)
     finally:
       if hadTemplateRoot:
         putEnv("VIEWY_TEMPLATE_ROOT", oldTemplateRoot)
