@@ -1,0 +1,59 @@
+# Valgrind suppressions for third-party GTK/WebKitGTK process startup noise.
+#
+# The CI job still fails on unsuppressed invalid memory accesses and definite
+# leaks. These suppressions keep the gate focused on viewy-owned native backend
+# code while running under WebKitGTK's multi-process runtime.
+
+{
+   webkitgtk-definite-leaks
+   Memcheck:Leak
+   match-leak-kinds: definite
+   ...
+   obj:/usr/lib/*/libwebkit2gtk-4.1.so*
+}
+
+{
+   javascriptcore-definite-leaks
+   Memcheck:Leak
+   match-leak-kinds: definite
+   ...
+   obj:/usr/lib/*/libjavascriptcoregtk-4.1.so*
+}
+
+{
+   gtk-definite-leaks
+   Memcheck:Leak
+   match-leak-kinds: definite
+   ...
+   obj:/usr/lib/*/libgtk-3.so*
+}
+
+{
+   glib-definite-leaks
+   Memcheck:Leak
+   match-leak-kinds: definite
+   ...
+   obj:/usr/lib/*/libglib-2.0.so*
+}
+
+{
+   gobject-definite-leaks
+   Memcheck:Leak
+   match-leak-kinds: definite
+   ...
+   obj:/usr/lib/*/libgobject-2.0.so*
+}
+
+{
+   javascriptcore-conditional-uninit
+   Memcheck:Cond
+   ...
+   obj:/usr/lib/*/libjavascriptcoregtk-4.1.so*
+}
+
+{
+   webkitgtk-conditional-uninit
+   Memcheck:Cond
+   ...
+   obj:/usr/lib/*/libwebkit2gtk-4.1.so*
+}

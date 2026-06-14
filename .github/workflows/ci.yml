@@ -424,3 +424,57 @@ jobs:
         run: |
           nimble pretty
           git diff --exit-code
+
+  linux-valgrind:
+    runs-on: ubuntu-latest
+    name: linux valgrind
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jiro4989/setup-nim-action@v2.3.0
+        with:
+          nim-version: "2.2.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Linux webview and Valgrind dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth valgrind libgtk-3-dev libwebkit2gtk-4.1-dev
+          pkg-config --atleast-version=2.40 webkit2gtk-4.1 || {
+            echo "libwebkit2gtk-4.1-dev must provide webkit2gtk-4.1 >= 2.40"
+            pkg-config --modversion webkit2gtk-4.1 || true
+            exit 1
+          }
+
+      - name: Install Nimble dependencies
+        run: nimble install -d -y
+
+      - name: Build Valgrind targets
+        run: |
+          mkdir -p build/valgrind
+          nim c --hints:off --mm:orc --threads:on -d:useMalloc -d:viewyBackend=native -o:build/valgrind/test_emit_stress tests/test_emit_stress.nim
+          nim c --hints:off --mm:orc --threads:on -d:useMalloc -o:build/valgrind/test_linux_scheme_flood tests/native/test_linux_scheme_flood.nim
+
+      - name: Run native Linux Valgrind suite
+        shell: bash
+        env:
+          G_SLICE: always-malloc
+          G_DEBUG: gc-friendly
+          JSC_useJIT: "false"
+        run: |
+          set -euo pipefail
+          run_valgrind() {
+            timeout 240s xvfb-run -a valgrind \
+              --tool=memcheck \
+              --error-exitcode=99 \
+              --leak-check=full \
+              --show-leak-kinds=definite \
+              --errors-for-leak-kinds=definite \
+              --track-origins=yes \
+              --num-callers=32 \
+              --suppressions=ci/valgrind.supp \
+              "$@"
+          }
+
+          run_valgrind build/valgrind/test_emit_stress
+          VIEWY_NATIVE_LINUX_SCHEME_FLOOD=1 run_valgrind build/valgrind/test_linux_scheme_flood

@@ -35,6 +35,7 @@ Runs against a real `newBackend()` and a real display. These tests are gated by
 - `test_backend_teardown.nim`
 - `test_emit_stress.nim`
 - `native/test_linux_scheme.nim`
+- `native/test_linux_scheme_flood.nim` (Valgrind-focused)
 - `test_windowed.nim`
 - `spike/window_smoke.nim`
 
