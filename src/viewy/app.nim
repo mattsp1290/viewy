@@ -123,7 +123,7 @@ proc run*(app: App) =
         app.backend.navigate(app.handle, servedServer.documentUrl())
       of assetsScheme:
         if useNativeScheme:
-          when selectedBackend == "native":
+          when selectedBackend == "native" and capScheme in selectedBackendCaps:
             app.backend.registerScheme(app.handle, "viewy", app.schemeHandler())
             app.backend.navigate(app.handle, "viewy://app/")
           else:

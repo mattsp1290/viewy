@@ -29,12 +29,16 @@ type
       height: int32) {.cdecl, gcsafe.}
   DarwinDispatchCallback = proc(userdata: pointer) {.cdecl, gcsafe.}
 
-  DarwinState = ref object
+  SharedState = object
     lock: Lock
     mainThreadId: int
     closed: bool
     app: ptr ViewyDarwinApp
     window: ptr ViewyDarwinWindow
+    owner: pointer
+
+  DarwinState = ref object
+    shared: ptr SharedState
     bindings: seq[Binding]
     dispatches: seq[DispatchSlot]
     handlerRegistered: bool
@@ -116,17 +120,26 @@ proc cstringToString(value: ConstCString): string =
   if raw == nil: "" else: $raw
 
 proc toHandle(state: DarwinState): BackendHandle =
-  cast[BackendHandle](state)
+  cast[BackendHandle](state.shared)
+
+proc toShared(h: BackendHandle): ptr SharedState =
+  doAssert h != nil, "viewy backend handle is nil"
+  result = cast[ptr SharedState](h)
+
+proc requireOpen(shared: ptr SharedState; op: string) =
+  if shared.closed or shared.window == nil or shared.app == nil:
+    raise newException(DarwinBackendError, op & " failed: backend is closed")
 
 proc toState(h: BackendHandle): DarwinState =
-  doAssert h != nil, "viewy backend handle is nil"
-  result = cast[DarwinState](h)
-  if result.closed or result.window == nil:
-    raise newException(DarwinBackendError, "viewy backend handle is closed")
+  let shared = h.toShared
+  shared.requireOpen("darwin backend operation")
+  result = cast[DarwinState](shared.owner)
+  if result == nil:
+    raise newException(DarwinBackendError, "darwin backend operation failed: backend is closed")
 
 proc assertUiThread(state: DarwinState) =
   when not defined(release):
-    doAssert getThreadId() == state.mainThreadId,
+    doAssert getThreadId() == state.shared.mainThreadId,
         "viewy backend operation must run on the UI thread"
 
 proc initSharedBytes(value: string): SharedBytes =
@@ -154,13 +167,13 @@ proc freePayload(payload: ptr HandoffPayload) {.gcsafe.} =
     payload.b.free()
     deallocShared(payload)
 
-proc newPayload(state: DarwinState; kind: HandoffKind; a = ""; b = "";
+proc newPayload(shared: ptr SharedState; kind: HandoffKind; a = ""; b = "";
     ok = false): ptr HandoffPayload =
   result = cast[ptr HandoffPayload](allocShared0(sizeof(HandoffPayload)))
   if result == nil:
     raise newException(DarwinBackendError, "darwin handoff allocation failed")
   try:
-    result.state = cast[pointer](state)
+    result.state = cast[pointer](shared)
     result.kind = kind
     result.ok = ok
     result.a = initSharedBytes(a)
@@ -185,20 +198,21 @@ proc jsCall(expr: string): string =
 
 proc bindScript(name: string): string =
   jsCall("""
-var w=window,v=w.__viewy||(w.__viewy={}),p=v._p||(v._p={}),s=Array.prototype.slice;
-v._seq=v._seq||0;
-v._id=v._id||function(){return String(Date.now())+"-"+String(Math.random()).slice(2)+"-"+String(++v._seq);};
-v._resolve=v._resolve||function(id,ok,json){
+	var w=window,v=w.__viewy||(w.__viewy={}),p=v._p||(v._p={}),b=v._b||(v._b={}),s=Array.prototype.slice;
+	v._seq=v._seq||0;
+	v._id=v._id||function(){return String(Date.now())+"-"+String(Math.random()).slice(2)+"-"+String(++v._seq);};
+	v._resolve=v._resolve||function(id,ok,json){
   var q=p[id],value;
   if(!q)return;
   delete p[id];
-  try{value=json===""?undefined:JSON.parse(json);}catch(e){ok=false;value=e;}
-  (ok?q.resolve:q.reject)(value);
-};
-if(Object.hasOwn?Object.hasOwn(w,$1):Object.prototype.hasOwnProperty.call(w,$1))throw new Error("Property "+$1+" already exists");
-w[$1]=function(){
-  var args=s.call(arguments),id=v._id();
-  return new Promise(function(resolve,reject){
+	  try{value=json===""?undefined:JSON.parse(json);}catch(e){ok=false;value=e;}
+	  (ok?q.resolve:q.reject)(value);
+	};
+	if((Object.hasOwn?Object.hasOwn(w,$1):Object.prototype.hasOwnProperty.call(w,$1))&&!b[$1])throw new Error("Property "+$1+" already exists");
+	b[$1]=true;
+	w[$1]=function(){
+	  var args=s.call(arguments),id=v._id();
+	  return new Promise(function(resolve,reject){
     p[id]={resolve:resolve,reject:reject};
     w.webkit.messageHandlers.$2.postMessage({name:$1,id:id,args:JSON.stringify(args)});
   });
@@ -208,7 +222,7 @@ w[$1]=function(){
 proc messageCb(userdata: pointer; name, id,
     jsonArgs: ConstCString) {.cdecl, gcsafe.} =
   let state = cast[DarwinState](userdata)
-  if state == nil:
+  if state == nil or state.shared == nil or state.shared.closed:
     return
   let binding = state.findBinding(name.cstringToString)
   if binding != nil:
@@ -216,7 +230,11 @@ proc messageCb(userdata: pointer; name, id,
 
 proc eventCb(userdata: pointer; kind, width, height: int32) {.cdecl, gcsafe.} =
   let state = cast[DarwinState](userdata)
-  if state == nil or state.eventCallback.isNil:
+  if state == nil or state.shared == nil or state.shared.closed:
+    return
+  if kind == 0 and state.shared.app != nil:
+    viewyDarwinAppStop(state.shared.app)
+  if state.eventCallback.isNil:
     return
   let eventKind =
     case kind
@@ -236,19 +254,22 @@ proc dispatchCb(userdata: pointer) {.cdecl, gcsafe.} =
   deallocShared(payload)
   if state == nil:
     return
-  if slot >= 0 and slot < state.dispatches.len:
-    let dispatch = state.dispatches[slot]
-    state.dispatches[slot] = nil
-    if dispatch != nil:
-      dispatch.fn()
+  try:
+    if not state.shared.closed and slot >= 0 and slot < state.dispatches.len:
+      let dispatch = state.dispatches[slot]
+      state.dispatches[slot] = nil
+      if dispatch != nil:
+        dispatch.fn()
+  finally:
+    GC_unref(state)
 
 proc handoffCb(userdata: pointer) {.cdecl, gcsafe.} =
   var payload = cast[ptr HandoffPayload](userdata)
   if payload == nil:
     return
   try:
-    let state = cast[DarwinState](payload.state)
-    if state == nil or state.closed:
+    let shared = cast[ptr SharedState](payload.state)
+    if shared == nil or shared.closed or shared.window == nil or shared.app == nil:
       freePayload(payload)
       return
     let a = payload.a.toString()
@@ -259,112 +280,145 @@ proc handoffCb(userdata: pointer) {.cdecl, gcsafe.} =
     payload = nil
     case kind
     of hkEval:
-      viewyDarwinWindowEval(state.window, a.cstring)
+      viewyDarwinWindowEval(shared.window, a.cstring)
     of hkResolve:
-      viewyDarwinResolve(state.window, a.cstring, (if ok: 1'i32 else: 0'i32),
+      viewyDarwinResolve(shared.window, a.cstring, (if ok: 1'i32 else: 0'i32),
           b.cstring)
     of hkTerminate:
-      viewyDarwinAppStop(state.app)
+      viewyDarwinAppStop(shared.app)
   except CatchableError:
     freePayload(payload)
 
 proc create(debug: bool): BackendHandle =
-  let state = DarwinState(mainThreadId: getThreadId(), bindings: @[],
-      dispatches: @[])
-  initLock(state.lock)
-  state.app = viewyDarwinAppCreate()
-  if state.app == nil:
+  let shared = cast[ptr SharedState](allocShared0(sizeof(SharedState)))
+  if shared == nil:
+    raise newException(DarwinBackendError, "darwin backend create failed: out of memory")
+  shared.mainThreadId = getThreadId()
+  initLock(shared.lock)
+  shared.app = viewyDarwinAppCreate()
+  if shared.app == nil:
+    deinitLock(shared.lock)
+    deallocShared(shared)
     raise newException(DarwinBackendError, "viewy_darwin_app_create failed")
-  state.window = viewyDarwinWindowCreate(state.app, if debug: 1'i32 else: 0'i32)
-  if state.window == nil:
-    viewyDarwinAppDestroy(state.app)
+  shared.window = viewyDarwinWindowCreate(shared.app, if debug: 1'i32 else: 0'i32)
+  if shared.window == nil:
+    viewyDarwinAppDestroy(shared.app)
+    deinitLock(shared.lock)
+    deallocShared(shared)
     raise newException(DarwinBackendError, "viewy_darwin_window_create failed")
-  viewyDarwinSetEventCallback(state.window, eventCb, cast[pointer](state))
+  let state = DarwinState(shared: shared, bindings: @[], dispatches: @[])
+  shared.owner = cast[pointer](state)
+  viewyDarwinSetEventCallback(shared.window, eventCb, cast[pointer](state))
   GC_ref(state)
   state.toHandle
 
 proc destroy(h: BackendHandle) =
-  let state = cast[DarwinState](h)
+  let shared = cast[ptr SharedState](h)
+  if shared == nil:
+    return
+  let state = cast[DarwinState](shared.owner)
   if state == nil:
     return
   state.assertUiThread
-  if not state.closed:
-    state.closed = true
-    if state.handlerRegistered and state.window != nil:
-      viewyDarwinClearMessageHandler(state.window, nativeHandlerName)
-    if state.window != nil:
-      viewyDarwinWindowDestroy(state.window)
-      state.window = nil
-    if state.app != nil:
-      viewyDarwinAppDestroy(state.app)
-      state.app = nil
-  deinitLock(state.lock)
+  acquire(shared.lock)
+  if not shared.closed:
+    shared.closed = true
+  release(shared.lock)
+  if shared.window != nil:
+    if state.handlerRegistered and shared.window != nil:
+      viewyDarwinClearMessageHandler(shared.window, nativeHandlerName)
+    viewyDarwinSetEventCallback(shared.window, nil, nil)
+    viewyDarwinWindowDestroy(shared.window)
+    shared.window = nil
+  if shared.app != nil:
+    viewyDarwinAppDestroy(shared.app)
+    shared.app = nil
+  state.bindings.setLen(0)
+  state.dispatches.setLen(0)
+  state.eventCallback = nil
+  shared.owner = nil
   GC_unref(state)
+  # SharedState intentionally remains allocated after destroy. BackendHandle is an
+  # unmanaged pointer that worker threads may still hold; keeping closed state
+  # readable lets late typed handoffs fail before touching native handles.
 
 proc run(h: BackendHandle) =
   let state = h.toState
   state.assertUiThread
-  viewyDarwinAppRun(state.app)
+  viewyDarwinAppRun(state.shared.app)
 
 proc terminate(h: BackendHandle) {.gcsafe.} =
-  let state = cast[DarwinState](h)
-  if state == nil:
+  let shared = cast[ptr SharedState](h)
+  if shared == nil:
     return
-  viewyDarwinAppStop(state.app)
+  viewyDarwinAppStop(shared.app)
 
 proc dispatch(h: BackendHandle; fn: DispatchProc) {.gcsafe.} =
-  let state = cast[DarwinState](h)
-  if state == nil or fn.isNil:
+  let state = block:
+    {.cast(gcsafe).}:
+      h.toState
+  if fn.isNil:
     return
+  if getThreadId() != state.shared.mainThreadId:
+    raise newException(DarwinBackendError,
+        "darwin dispatch failed: closure dispatch is UI-thread only; use typed handoff")
   let payload = cast[ptr DispatchPayload](allocShared0(sizeof(DispatchPayload)))
   if payload == nil:
     raise newException(DarwinBackendError, "darwin dispatch allocation failed")
-  acquire(state.lock)
   let slot = state.dispatches.len
   state.dispatches.add DispatchSlot(fn: fn)
-  release(state.lock)
   payload.state = cast[pointer](state)
   payload.slot = slot
-  viewyDarwinAppDispatch(state.app, dispatchCb, payload)
+  GC_ref(state)
+  viewyDarwinAppDispatch(state.shared.app, dispatchCb, payload)
 
 proc dispatchEval(h: BackendHandle; js: string) {.gcsafe.} =
-  let state = cast[DarwinState](h)
-  if state == nil:
-    return
-  viewyDarwinAppDispatch(state.app, handoffCb, newPayload(state, hkEval, js))
+  let shared = h.toShared
+  acquire(shared.lock)
+  try:
+    shared.requireOpen("darwin dispatch")
+    viewyDarwinAppDispatch(shared.app, handoffCb, newPayload(shared, hkEval, js))
+  finally:
+    release(shared.lock)
 
 proc dispatchResolve(h: BackendHandle; id: string; ok: bool;
     jsonResult: string) {.gcsafe.} =
-  let state = cast[DarwinState](h)
-  if state == nil:
-    return
-  viewyDarwinAppDispatch(state.app, handoffCb, newPayload(state, hkResolve, id,
-      jsonResult, ok))
+  let shared = h.toShared
+  acquire(shared.lock)
+  try:
+    shared.requireOpen("darwin dispatch")
+    viewyDarwinAppDispatch(shared.app, handoffCb, newPayload(shared, hkResolve, id,
+        jsonResult, ok))
+  finally:
+    release(shared.lock)
 
 proc dispatchTerminate(h: BackendHandle) {.gcsafe.} =
-  let state = cast[DarwinState](h)
-  if state == nil:
-    return
-  viewyDarwinAppDispatch(state.app, handoffCb, newPayload(state, hkTerminate))
+  let shared = h.toShared
+  acquire(shared.lock)
+  try:
+    shared.requireOpen("darwin dispatch")
+    viewyDarwinAppDispatch(shared.app, handoffCb, newPayload(shared, hkTerminate))
+  finally:
+    release(shared.lock)
 
 proc setTitle(h: BackendHandle; title: string) =
-  viewyDarwinWindowSetTitle(h.toState.window, title.cstring)
+  viewyDarwinWindowSetTitle(h.toState.shared.window, title.cstring)
 
 proc setSize(h: BackendHandle; width, height: int; hints: WindowHints) =
-  viewyDarwinWindowSetSize(h.toState.window, width.int32, height.int32,
+  viewyDarwinWindowSetSize(h.toState.shared.window, width.int32, height.int32,
       ord(hints).int32)
 
 proc navigate(h: BackendHandle; url: string) =
-  viewyDarwinWindowNavigate(h.toState.window, url.cstring)
+  viewyDarwinWindowNavigate(h.toState.shared.window, url.cstring)
 
 proc setHtml(h: BackendHandle; html: string) =
-  viewyDarwinWindowSetHtml(h.toState.window, html.cstring)
+  viewyDarwinWindowSetHtml(h.toState.shared.window, html.cstring)
 
 proc eval(h: BackendHandle; js: string) =
-  viewyDarwinWindowEval(h.toState.window, js.cstring)
+  viewyDarwinWindowEval(h.toState.shared.window, js.cstring)
 
 proc init(h: BackendHandle; js: string) =
-  viewyDarwinWindowInitScript(h.toState.window, js.cstring)
+  viewyDarwinWindowInitScript(h.toState.shared.window, js.cstring)
 
 proc bindFn(h: BackendHandle; name: string; cb: BindCallback) =
   let state = h.toState
@@ -373,23 +427,26 @@ proc bindFn(h: BackendHandle; name: string; cb: BindCallback) =
     raise newException(DarwinBackendError,
         "native macOS bind failed: duplicate binding " & name)
   if not state.handlerRegistered:
-    if viewyDarwinSetMessageHandler(state.window, nativeHandlerName, messageCb,
+    if viewyDarwinSetMessageHandler(state.shared.window, nativeHandlerName, messageCb,
         cast[pointer](state)) == 0:
       raise newException(DarwinBackendError,
           "viewy_darwin_set_message_handler failed")
   state.handlerRegistered = true
   state.bindings.add Binding(name: name, cb: cb)
-  viewyDarwinWindowEval(state.window, bindScript(name).cstring)
+  let script = bindScript(name)
+  viewyDarwinWindowInitScript(state.shared.window, script.cstring)
+  viewyDarwinWindowEval(state.shared.window, script.cstring)
 
 proc unbind(h: BackendHandle; name: string) =
   let state = h.toState
   state.assertUiThread
   state.removeBinding(name)
-  viewyDarwinWindowEval(state.window,
-      jsCall("delete window[" & name.toJson() & "];").cstring)
+  viewyDarwinWindowEval(state.shared.window,
+      jsCall("if(window.__viewy&&window.__viewy._b)delete window.__viewy._b[" &
+      name.toJson() & "];delete window[" & name.toJson() & "];").cstring)
 
 proc resolve(h: BackendHandle; id: string; ok: bool; jsonResult: string) =
-  viewyDarwinResolve(h.toState.window, id.cstring, (if ok: 1'i32 else: 0'i32),
+  viewyDarwinResolve(h.toState.shared.window, id.cstring, (if ok: 1'i32 else: 0'i32),
       jsonResult.cstring)
 
 proc onWindowEvent(h: BackendHandle; cb: WindowEventCallback) =

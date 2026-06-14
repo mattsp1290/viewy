@@ -38,6 +38,25 @@ doAssert backend.dispatchTerminate != nil
       check exitCode != 0
       check output.contains("viewyBackend=native currently requires Linux or macOS")
 
+  test "native selected caps are platform-specific":
+    block:
+      let (output, exitCode) = nimCheck("""
+import viewy/backend/api
+static:
+  doAssert selectedBackendCaps == {capScheme}
+""", "--os:linux -d:viewyBackend=native")
+      checkpoint output
+      check exitCode == 0
+
+    block:
+      let (output, exitCode) = nimCheck("""
+import viewy/backend/api
+static:
+  doAssert selectedBackendCaps == {capWindowEvents}
+""", "--os:macosx -d:viewyBackend=native")
+      checkpoint output
+      check exitCode == 0
+
   test "native selection rejects gtk4 flag":
     let (output, exitCode) = nimCheck("""
 import viewy/backend/select

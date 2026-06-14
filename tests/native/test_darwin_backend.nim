@@ -35,11 +35,22 @@ else:
 
   if getEnv("VIEWY_NATIVE_DARWIN_SMOKE") == "1":
     let h = nativeBackend.create(false)
+    var dispatched = false
+    nativeBackend.dispatch(h, proc() {.gcsafe.} =
+      dispatched = true
+    )
+    nativeBackend.bindFn(h, "viewySmoke", proc(id, jsonArgs: string) {.gcsafe.} =
+      discard id
+      discard jsonArgs
+    )
     nativeBackend.setTitle(h, "Viewy Darwin native smoke")
     nativeBackend.setSize(h, 320, 240, whMin)
     nativeBackend.setHtml(h, "<!doctype html><p>viewy native macOS</p>")
     nativeBackend.dispatchTerminate(h)
     nativeBackend.run(h)
+    doAssert dispatched
     nativeBackend.destroy(h)
+    doAssertRaises(DarwinBackendError):
+      nativeBackend.dispatchTerminate(h)
 
   echo "ok: darwin native backend declarations"
