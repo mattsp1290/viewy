@@ -51,16 +51,16 @@ void viewy_darwin_set_event_callback(ViewyDarwinWindow *window,
                                      ViewyDarwinEventCallback callback,
                                      void *userdata);
 
-void viewy_darwin_set_app_menu(ViewyDarwinApp *app, const char *json_menu,
-                               ViewyDarwinMenuCallback callback,
-                               void *userdata);
+int32_t viewy_darwin_set_app_menu(ViewyDarwinApp *app, const char *json_menu,
+                                  ViewyDarwinMenuCallback callback,
+                                  void *userdata);
 
 int32_t viewy_darwin_tray_create(ViewyDarwinApp *app, const char *json_options,
                                  ViewyDarwinMenuCallback callback,
                                  void *userdata);
-void viewy_darwin_tray_update(ViewyDarwinApp *app, const char *id,
+void viewy_darwin_tray_update(ViewyDarwinApp *app, const char *tray_id,
                               const char *json_options);
-void viewy_darwin_tray_destroy(ViewyDarwinApp *app, const char *id);
+void viewy_darwin_tray_destroy(ViewyDarwinApp *app, const char *tray_id);
 
 #ifdef __cplusplus
 }

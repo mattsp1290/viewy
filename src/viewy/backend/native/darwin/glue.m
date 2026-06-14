@@ -4,15 +4,48 @@
 #import <WebKit/WebKit.h>
 
 @interface ViewyDarwinAppBox : NSObject
+@property(nonatomic, assign) ViewyDarwinMenuCallback menuCallback;
+@property(nonatomic, assign) void *menuUserdata;
+@property(nonatomic, assign) ViewyDarwinMenuCallback trayCallback;
+@property(nonatomic, assign) void *trayUserdata;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSStatusItem *> *statusItems;
 @end
 
 @implementation ViewyDarwinAppBox
+
+- (instancetype)init {
+  self = [super init];
+  if (self) {
+    _statusItems = [NSMutableDictionary dictionary];
+  }
+  return self;
+}
+
+@end
+
+@interface ViewyDarwinMenuTarget : NSObject
+@property(nonatomic, copy) NSString *itemId;
+@property(nonatomic, assign) ViewyDarwinMenuCallback callback;
+@property(nonatomic, assign) void *userdata;
+- (void)activate:(id)sender;
+@end
+
+@implementation ViewyDarwinMenuTarget
+
+- (void)activate:(id)sender {
+  (void)sender;
+  if (self.callback) {
+    self.callback(self.userdata, self.itemId.UTF8String);
+  }
+}
+
 @end
 
 @interface ViewyDarwinWindowBox : NSObject <WKScriptMessageHandler,
                                             NSWindowDelegate>
 @property(nonatomic, strong) NSWindow *window;
 @property(nonatomic, strong) WKWebView *webView;
+@property(nonatomic, strong) NSMutableSet<NSString *> *handlerNames;
 @property(nonatomic, assign) ViewyDarwinMessageCallback messageCallback;
 @property(nonatomic, assign) void *messageUserdata;
 @property(nonatomic, assign) ViewyDarwinEventCallback eventCallback;
@@ -20,6 +53,14 @@
 @end
 
 @implementation ViewyDarwinWindowBox
+
+- (instancetype)init {
+  self = [super init];
+  if (self) {
+    _handlerNames = [NSMutableSet set];
+  }
+  return self;
+}
 
 - (void)userContentController:(WKUserContentController *)userContentController
       didReceiveScriptMessage:(WKScriptMessage *)message {
@@ -97,6 +138,107 @@ static NSString *ViewyJsonString(NSString *value) {
     return @"\"\"";
   }
   return [array substringWithRange:NSMakeRange(1, array.length - 2)];
+}
+
+static id ViewyJson(const char *value) {
+  NSData *data = [ViewyString(value) dataUsingEncoding:NSUTF8StringEncoding];
+  if (!data) {
+    return nil;
+  }
+  return [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+}
+
+static NSString *ViewyDictString(NSDictionary *dict, NSString *key) {
+  id value = dict[key];
+  return [value isKindOfClass:[NSString class]] ? value : @"";
+}
+
+static BOOL ViewyDictBool(NSDictionary *dict, NSString *key, BOOL fallback) {
+  id value = dict[key];
+  return [value respondsToSelector:@selector(boolValue)] ? [value boolValue]
+                                                         : fallback;
+}
+
+static NSInteger ViewyMenuKind(NSDictionary *dict) {
+  id value = dict[@"kind"];
+  if ([value respondsToSelector:@selector(integerValue)]) {
+    return [value integerValue];
+  }
+  if (![value isKindOfClass:[NSString class]]) {
+    return 0;
+  }
+  NSString *kind = (NSString *)value;
+  if ([kind isEqualToString:@"separator"]) {
+    return 1;
+  }
+  if ([kind isEqualToString:@"submenu"]) {
+    return 2;
+  }
+  if ([kind isEqualToString:@"checkbox"]) {
+    return 3;
+  }
+  if ([kind isEqualToString:@"radio"]) {
+    return 4;
+  }
+  return 0;
+}
+
+static NSMenu *ViewyBuildMenu(NSArray *items, ViewyDarwinMenuCallback callback,
+                              void *userdata,
+                              NSMutableArray<ViewyDarwinMenuTarget *> *targets);
+
+static NSMenuItem *ViewyBuildMenuItem(NSDictionary *dict,
+                                      ViewyDarwinMenuCallback callback,
+                                      void *userdata,
+                                      NSMutableArray<ViewyDarwinMenuTarget *> *targets) {
+  NSInteger kind = ViewyMenuKind(dict);
+  if (kind == 1) {
+    return [NSMenuItem separatorItem];
+  }
+
+  NSString *label = ViewyDictString(dict, @"label");
+  NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:label
+                                                action:nil
+                                         keyEquivalent:@""];
+  item.enabled = ViewyDictBool(dict, @"enabled", YES);
+
+  if (kind == 2) {
+    id children = dict[@"children"];
+    if ([children isKindOfClass:[NSArray class]]) {
+      item.submenu = ViewyBuildMenu(children, callback, userdata, targets);
+    }
+    return item;
+  }
+
+  NSString *itemId = ViewyDictString(dict, @"id");
+  if (itemId.length > 0 && callback) {
+    ViewyDarwinMenuTarget *target = [ViewyDarwinMenuTarget new];
+    target.itemId = itemId;
+    target.callback = callback;
+    target.userdata = userdata;
+    item.target = target;
+    item.action = @selector(activate:);
+    item.representedObject = target;
+    [targets addObject:target];
+  }
+  if (kind == 3 || kind == 4) {
+    item.state = ViewyDictBool(dict, @"checked", NO) ? NSControlStateValueOn
+                                                     : NSControlStateValueOff;
+  }
+  return item;
+}
+
+static NSMenu *ViewyBuildMenu(NSArray *items, ViewyDarwinMenuCallback callback,
+                              void *userdata,
+                              NSMutableArray<ViewyDarwinMenuTarget *> *targets) {
+  NSMenu *menu = [NSMenu new];
+  for (id raw in items) {
+    if (![raw isKindOfClass:[NSDictionary class]]) {
+      continue;
+    }
+    [menu addItem:ViewyBuildMenuItem(raw, callback, userdata, targets)];
+  }
+  return menu;
 }
 
 static void ViewyEnsureApp(void) {
@@ -199,6 +341,12 @@ void viewy_darwin_window_destroy(ViewyDarwinWindow *window) {
     return;
   }
   @autoreleasepool {
+    WKUserContentController *controller =
+        window->box.webView.configuration.userContentController;
+    for (NSString *handler in window->box.handlerNames) {
+      [controller removeScriptMessageHandlerForName:handler];
+    }
+    [window->box.handlerNames removeAllObjects];
     [window->box.webView.configuration.userContentController
         removeAllUserScripts];
     window->box.window.delegate = nil;
@@ -271,11 +419,15 @@ int32_t viewy_darwin_set_message_handler(ViewyDarwinWindow *window,
     return 0;
   }
   NSString *handler = ViewyString(handler_name);
+  if ([window->box.handlerNames containsObject:handler]) {
+    return 0;
+  }
   window->box.messageCallback = callback;
   window->box.messageUserdata = userdata;
   [window->box.webView.configuration.userContentController
       addScriptMessageHandler:window->box
                          name:handler];
+  [window->box.handlerNames addObject:handler];
   return 1;
 }
 
@@ -284,8 +436,13 @@ void viewy_darwin_clear_message_handler(ViewyDarwinWindow *window,
   if (!window || !handler_name) {
     return;
   }
+  NSString *handler = ViewyString(handler_name);
+  if (![window->box.handlerNames containsObject:handler]) {
+    return;
+  }
   [window->box.webView.configuration.userContentController
-      removeScriptMessageHandlerForName:ViewyString(handler_name)];
+      removeScriptMessageHandlerForName:handler];
+  [window->box.handlerNames removeObject:handler];
   window->box.messageCallback = NULL;
   window->box.messageUserdata = NULL;
 }
@@ -314,33 +471,106 @@ void viewy_darwin_set_event_callback(ViewyDarwinWindow *window,
   window->box.eventUserdata = userdata;
 }
 
-void viewy_darwin_set_app_menu(ViewyDarwinApp *app, const char *json_menu,
-                               ViewyDarwinMenuCallback callback,
-                               void *userdata) {
-  (void)app;
-  (void)json_menu;
-  (void)callback;
-  (void)userdata;
+int32_t viewy_darwin_set_app_menu(ViewyDarwinApp *app, const char *json_menu,
+                                  ViewyDarwinMenuCallback callback,
+                                  void *userdata) {
+  if (!app) {
+    return 0;
+  }
+  id raw = ViewyJson(json_menu);
+  if (![raw isKindOfClass:[NSArray class]]) {
+    return 0;
+  }
+  NSMutableArray<ViewyDarwinMenuTarget *> *targets = [NSMutableArray array];
+  NSMenu *menu = ViewyBuildMenu(raw, callback, userdata, targets);
+  app->box.menuCallback = callback;
+  app->box.menuUserdata = userdata;
+  [NSApplication sharedApplication].mainMenu = menu;
+  return 1;
 }
 
 int32_t viewy_darwin_tray_create(ViewyDarwinApp *app, const char *json_options,
                                  ViewyDarwinMenuCallback callback,
                                  void *userdata) {
-  (void)app;
-  (void)json_options;
-  (void)callback;
-  (void)userdata;
-  return 0;
+  if (!app) {
+    return 0;
+  }
+  id raw = ViewyJson(json_options);
+  if (![raw isKindOfClass:[NSDictionary class]]) {
+    return 0;
+  }
+  NSDictionary *options = (NSDictionary *)raw;
+  NSString *itemId = ViewyDictString(options, @"id");
+  if (itemId.length == 0 || app->box.statusItems[itemId]) {
+    return 0;
+  }
+
+  NSStatusItem *item = [[NSStatusBar systemStatusBar]
+      statusItemWithLength:NSVariableStatusItemLength];
+  NSString *tooltip = ViewyDictString(options, @"tooltip");
+  item.button.toolTip = tooltip;
+  item.button.title = tooltip.length > 0 ? tooltip : itemId;
+
+  NSString *iconPath = ViewyDictString(options, @"iconPath");
+  NSString *templateIconPath = ViewyDictString(options, @"templateIconPath");
+  NSString *selectedIconPath = templateIconPath.length > 0 ? templateIconPath : iconPath;
+  if (selectedIconPath.length > 0) {
+    NSImage *image = [[NSImage alloc] initWithContentsOfFile:selectedIconPath];
+    image.template = templateIconPath.length > 0;
+    item.button.image = image;
+    item.button.title = @"";
+  }
+
+  id menuItems = options[@"menu"];
+  if ([menuItems isKindOfClass:[NSArray class]]) {
+    NSMutableArray<ViewyDarwinMenuTarget *> *targets = [NSMutableArray array];
+    item.menu = ViewyBuildMenu(menuItems, callback, userdata, targets);
+  }
+  app->box.statusItems[itemId] = item;
+  app->box.trayCallback = callback;
+  app->box.trayUserdata = userdata;
+  return 1;
 }
 
-void viewy_darwin_tray_update(ViewyDarwinApp *app, const char *id,
+void viewy_darwin_tray_update(ViewyDarwinApp *app, const char *tray_id,
                               const char *json_options) {
-  (void)app;
-  (void)id;
-  (void)json_options;
+  if (!app || !tray_id) {
+    return;
+  }
+  NSString *itemId = ViewyString(tray_id);
+  NSStatusItem *item = app->box.statusItems[itemId];
+  if (!item) {
+    return;
+  }
+  id raw = ViewyJson(json_options);
+  if (![raw isKindOfClass:[NSDictionary class]]) {
+    return;
+  }
+  NSDictionary *options = (NSDictionary *)raw;
+  NSString *tooltip = ViewyDictString(options, @"tooltip");
+  if (tooltip.length > 0) {
+    item.button.toolTip = tooltip;
+    if (!item.button.image) {
+      item.button.title = tooltip;
+    }
+  }
+  id menuItems = options[@"menu"];
+  if ([menuItems isKindOfClass:[NSArray class]]) {
+    NSMutableArray<ViewyDarwinMenuTarget *> *targets = [NSMutableArray array];
+    item.menu = ViewyBuildMenu(menuItems, app->box.trayCallback,
+                               app->box.trayUserdata, targets);
+  }
 }
 
-void viewy_darwin_tray_destroy(ViewyDarwinApp *app, const char *id) {
-  (void)app;
-  (void)id;
+void viewy_darwin_tray_destroy(ViewyDarwinApp *app, const char *tray_id) {
+  if (!app || !tray_id) {
+    return;
+  }
+  NSString *itemId = ViewyString(tray_id);
+  NSStatusItem *item = app->box.statusItems[itemId];
+  if (!item) {
+    return;
+  }
+  [[NSStatusBar systemStatusBar] removeStatusItem:item];
+  [app->box.statusItems removeObjectForKey:itemId];
 }
