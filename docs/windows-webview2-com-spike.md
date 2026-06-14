@@ -34,6 +34,11 @@ The fallback is recorded in
 `src/viewy/backend/native/windows/webview2_env_spike.nim` and type-checked by
 `tests/native/test_windows_webview2_env_spike.nim`.
 
+The post-loader COM boundary is declared in
+`src/viewy/backend/native/windows/com.nim`. That module is intentionally limited
+to the WebView2 interfaces needed by the native backend and is compile-checked
+separately from the loader fallback.
+
 ## Build Implications
 
 The retained C++ loader path must use the same SDK pin as the lite backend:
