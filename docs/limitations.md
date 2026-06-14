@@ -1,13 +1,14 @@
 # Limitations
 
-viewy is intentionally small in its first backend: a Nim API over the vendored
-`webview/webview` library, plus a CLI that builds Vite assets into the Nim
-binary. This document lists known limitations so users can choose the right
-asset mode and avoid assuming platform features that are not implemented.
+viewy keeps a small compatibility backend and is adding native backends in v2.
+This document lists current limitations so users can choose the right backend
+and asset mode without assuming platform features that are not implemented.
+
+For v1-to-v2 behavior changes, see [migration-v2.md](migration-v2.md).
 
 ## Native Desktop Features
 
-viewy v1 does not expose:
+The lite backend does not expose:
 
 - system tray icons;
 - native menu bars or context menus;
@@ -15,22 +16,23 @@ viewy v1 does not expose:
 - direct native handles;
 - the linked `webview/webview` version at runtime.
 
-The backend abstraction is deliberately narrow. The current lite backend
+The backend abstraction is deliberately narrow. The lite backend
 wraps create/run/destroy, title, size, navigation, HTML injection, JavaScript
 eval/init, binding, unbinding, and promise return. It intentionally does not
 wrap `webview_get_native_handle` or `webview_version`, and there is no API for
 tray, native menus, or custom schemes.
 
-These are backend limitations, not permanent product goals. A future native
-backend could add deeper platform integration, but there is no active v1 work
-for that.
+These are lite-backend limitations, not permanent product goals. Native
+backends add deeper platform integration behind capability gates as each
+platform implementation lands.
 
 ## Asset Modes
 
 Scheme mode is the default asset value for new `viewy.json` files. It generates
-an embedded `dist/` asset table. The current lite backend cannot register a
-native custom scheme yet, so scheme mode uses the served-mode loopback fallback
-until native backends land.
+an embedded multi-file `dist/` asset table. Native backends serve that table
+through a custom scheme when supported. The lite backend cannot register a
+native custom scheme, so scheme mode uses the served-mode loopback fallback on
+lite.
 
 Single-file mode is the legacy `assets = "single"` path. It embeds one generated
 HTML document and loads it with `setHtml`. It uses no port, no temp directory,
@@ -73,9 +75,10 @@ Build on the operating system you are targeting:
 - macOS: system WebKit and Cocoa frameworks;
 - Windows: MinGW-w64 or MSVC with WebView2 support.
 
-The CI matrix builds and runs windowed tests on Linux, macOS, Windows MinGW,
-and Windows MSVC. Other compiler/platform combinations are not part of the
-supported v1 surface.
+The CI matrix builds and runs windowed lite tests on Linux, macOS, Windows
+MinGW, and Windows MSVC. Native backend coverage is added per platform as the
+native implementations land. Other compiler/platform combinations are not part
+of the supported surface.
 
 ## Runtime Scope
 
