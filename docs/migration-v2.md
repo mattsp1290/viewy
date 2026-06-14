@@ -57,7 +57,20 @@ falling back.
 
 At this stage, `-d:viewyBackend=native` is implemented for Linux, macOS, and
 Windows. Use `-d:viewyBackend=lite` only when you need the compatibility
-backend.
+backend. Production `scheme` builds select native on supported platforms;
+`viewy dev` still uses lite until the native HMR follow-up lands.
+
+Windows native status:
+
+- `capScheme`, IPC/init-script parity, app/window menus, tray menus, and
+  show/hide window visibility are implemented on the Win32/WebView2 backend.
+- Production `viewy://app/...` scheme navigations are mapped internally to
+  `https://viewy.localhost/...` because WebView2 serves virtual-host requests
+  more reliably than custom schemes.
+- Windows native builds need the Microsoft Edge WebView2 Evergreen Runtime at
+  runtime. The WebView2 SDK/COM ABI is vendored and pinned in the repository.
+- `capWindowEvents` is still macOS-only, and context-menu APIs are staged but
+  not advertised by any native backend at runtime yet.
 
 ## Asset Mode Mapping
 
@@ -80,8 +93,8 @@ v1 behavior during the transition.
 
 Use `assets = "scheme"` when your frontend expects normal URL-addressable
 files, relative `fetch()` calls, or a multi-file Vite output. On backends with
-custom scheme support this avoids the loopback HTTP server. On lite, it uses
-the served-mode fallback until native support is available for that platform.
+scheme support this avoids the loopback HTTP server. On lite, it uses the
+served-mode fallback.
 
 Use `assets = "served"` only when you specifically want the legacy loopback
 HTTP behavior.
@@ -109,4 +122,5 @@ Windows. Legacy `single` and `served` builds continue to select lite for v1
 compatibility.
 
 This staged behavior lets existing apps keep shipping while native backends
-gain platform-specific scheme, menu, tray, and lifecycle support.
+continue to gain platform-specific menu, tray, context-menu, and lifecycle
+coverage.
