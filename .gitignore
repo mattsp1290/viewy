@@ -15,6 +15,7 @@ cli/tests/test_doctor
 cli/tests/test_dispatch
 cli/tests/test_e2e
 cli/tests/test_init
+tests/native/test_windows_webview2
 
 # Agent review artifacts
 .agents/reviews/

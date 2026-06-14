@@ -39,10 +39,12 @@ type
     lpVtbl*: ptr CoreWebView2WebResourceRequestVtbl
   ICoreWebView2WebResourceResponse* = object
     lpVtbl*: ptr CoreWebView2WebResourceResponseVtbl
-  ICoreWebView2WebResourceRequestedEventArgs* = object
+  ICoreWebView2WebResourceRequestedEventArgs * = object
     lpVtbl*: ptr CoreWebView2WebResourceRequestedEventArgsVtbl
+  ICoreWebView2WebMessageReceivedEventArgs * = object
+    lpVtbl*: ptr CoreWebView2WebMessageReceivedEventArgsVtbl
   ICoreWebView2Deferral* = object
-  ICoreWebView2HttpHeadersCollectionIterator* = object
+  ICoreWebView2HttpHeadersCollectionIterator * = object
     lpVtbl*: ptr CoreWebView2HttpHeadersCollectionIteratorVtbl
   ICoreWebView2HttpRequestHeaders* = object
     lpVtbl*: ptr CoreWebView2HttpRequestHeadersVtbl
@@ -91,7 +93,7 @@ type
       pcbRead: ptr Ulong): Hresult {.stdcall.}
     write*: ComMethod
 
-  CoreWebView2HttpHeadersCollectionIteratorVtbl* = object
+  CoreWebView2HttpHeadersCollectionIteratorVtbl * = object
     queryInterface*: QueryInterfaceProc[ICoreWebView2HttpHeadersCollectionIterator]
     addRef*: AddRefProc[ICoreWebView2HttpHeadersCollectionIterator]
     release*: ReleaseProc[ICoreWebView2HttpHeadersCollectionIterator]
@@ -238,7 +240,7 @@ type
     putReasonPhrase*: proc(self: ptr ICoreWebView2WebResourceResponse;
       value: Pcwstr): Hresult {.stdcall.}
 
-  CoreWebView2WebResourceRequestedEventArgsVtbl* = object
+  CoreWebView2WebResourceRequestedEventArgsVtbl * = object
     queryInterface*: QueryInterfaceProc[ICoreWebView2WebResourceRequestedEventArgs]
     addRef*: AddRefProc[ICoreWebView2WebResourceRequestedEventArgs]
     release*: ReleaseProc[ICoreWebView2WebResourceRequestedEventArgs]
@@ -252,6 +254,18 @@ type
       value: ptr ptr ICoreWebView2Deferral): Hresult {.stdcall.}
     getResourceContext*: proc(self: ptr ICoreWebView2WebResourceRequestedEventArgs;
       value: ptr WebResourceContext): Hresult {.stdcall.}
+
+  CoreWebView2WebMessageReceivedEventArgsVtbl * = object
+    queryInterface*: QueryInterfaceProc[ICoreWebView2WebMessageReceivedEventArgs]
+    addRef*: AddRefProc[ICoreWebView2WebMessageReceivedEventArgs]
+    release*: ReleaseProc[ICoreWebView2WebMessageReceivedEventArgs]
+    getSource*: proc(self: ptr ICoreWebView2WebMessageReceivedEventArgs;
+      value: Pwwstr): Hresult {.stdcall.}
+    getWebMessageAsJson*: proc(self: ptr ICoreWebView2WebMessageReceivedEventArgs;
+      value: Pwwstr): Hresult {.stdcall.}
+    tryGetWebMessageAsString*: proc(
+      self: ptr ICoreWebView2WebMessageReceivedEventArgs;
+      value: Pwwstr): Hresult {.stdcall.}
 
   CoreWebView2EnvironmentVtbl* = object
     queryInterface*: QueryInterfaceProc[ICoreWebView2Environment]
@@ -355,22 +369,22 @@ type
     addWindowCloseRequested*: ComMethod
     removeWindowCloseRequested*: ComMethod
 
-  ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler* = object
+  ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler * = object
     lpVtbl*: ptr CoreWebView2CreateEnvironmentCompletedHandlerVtbl
-  ICoreWebView2CreateCoreWebView2ControllerCompletedHandler* = object
+  ICoreWebView2CreateCoreWebView2ControllerCompletedHandler * = object
     lpVtbl*: ptr CoreWebView2CreateControllerCompletedHandlerVtbl
-  ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler* = object
+  ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler * = object
     lpVtbl*: ptr CoreWebView2AddScriptCompletedHandlerVtbl
-  ICoreWebView2ExecuteScriptCompletedHandler* = object
+  ICoreWebView2ExecuteScriptCompletedHandler * = object
     lpVtbl*: ptr CoreWebView2ExecuteScriptCompletedHandlerVtbl
-  ICoreWebView2WebMessageReceivedEventHandler* = object
+  ICoreWebView2WebMessageReceivedEventHandler * = object
     lpVtbl*: ptr CoreWebView2WebMessageReceivedEventHandlerVtbl
-  ICoreWebView2WebResourceRequestedEventHandler* = object
+  ICoreWebView2WebResourceRequestedEventHandler * = object
     lpVtbl*: ptr CoreWebView2WebResourceRequestedEventHandlerVtbl
-  ICoreWebView2PermissionRequestedEventHandler* = object
+  ICoreWebView2PermissionRequestedEventHandler * = object
     lpVtbl*: ptr CoreWebView2PermissionRequestedEventHandlerVtbl
 
-  CoreWebView2CreateEnvironmentCompletedHandlerVtbl* = object
+  CoreWebView2CreateEnvironmentCompletedHandlerVtbl * = object
     queryInterface*: QueryInterfaceProc[ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler]
     addRef*: AddRefProc[ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler]
     release*: ReleaseProc[ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler]
@@ -378,7 +392,7 @@ type
       errorCode: Hresult; result: ptr ICoreWebView2Environment
     ): Hresult {.stdcall.}
 
-  CoreWebView2CreateControllerCompletedHandlerVtbl* = object
+  CoreWebView2CreateControllerCompletedHandlerVtbl * = object
     queryInterface*: QueryInterfaceProc[ICoreWebView2CreateCoreWebView2ControllerCompletedHandler]
     addRef*: AddRefProc[ICoreWebView2CreateCoreWebView2ControllerCompletedHandler]
     release*: ReleaseProc[ICoreWebView2CreateCoreWebView2ControllerCompletedHandler]
@@ -386,28 +400,29 @@ type
       errorCode: Hresult; result: ptr ICoreWebView2Controller
     ): Hresult {.stdcall.}
 
-  CoreWebView2AddScriptCompletedHandlerVtbl* = object
+  CoreWebView2AddScriptCompletedHandlerVtbl * = object
     queryInterface*: QueryInterfaceProc[ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler]
     addRef*: AddRefProc[ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler]
     release*: ReleaseProc[ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler]
     invoke*: proc(self: ptr ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler;
       errorCode: Hresult; id: Pcwstr): Hresult {.stdcall.}
 
-  CoreWebView2ExecuteScriptCompletedHandlerVtbl* = object
+  CoreWebView2ExecuteScriptCompletedHandlerVtbl * = object
     queryInterface*: QueryInterfaceProc[ICoreWebView2ExecuteScriptCompletedHandler]
     addRef*: AddRefProc[ICoreWebView2ExecuteScriptCompletedHandler]
     release*: ReleaseProc[ICoreWebView2ExecuteScriptCompletedHandler]
     invoke*: proc(self: ptr ICoreWebView2ExecuteScriptCompletedHandler;
       errorCode: Hresult; resultObjectAsJson: Pcwstr): Hresult {.stdcall.}
 
-  CoreWebView2WebMessageReceivedEventHandlerVtbl* = object
+  CoreWebView2WebMessageReceivedEventHandlerVtbl * = object
     queryInterface*: QueryInterfaceProc[ICoreWebView2WebMessageReceivedEventHandler]
     addRef*: AddRefProc[ICoreWebView2WebMessageReceivedEventHandler]
     release*: ReleaseProc[ICoreWebView2WebMessageReceivedEventHandler]
     invoke*: proc(self: ptr ICoreWebView2WebMessageReceivedEventHandler;
-      sender: ptr ICoreWebView2; args: pointer): Hresult {.stdcall.}
+      sender: ptr ICoreWebView2;
+      args: ptr ICoreWebView2WebMessageReceivedEventArgs): Hresult {.stdcall.}
 
-  CoreWebView2WebResourceRequestedEventHandlerVtbl* = object
+  CoreWebView2WebResourceRequestedEventHandlerVtbl * = object
     queryInterface*: QueryInterfaceProc[ICoreWebView2WebResourceRequestedEventHandler]
     addRef*: AddRefProc[ICoreWebView2WebResourceRequestedEventHandler]
     release*: ReleaseProc[ICoreWebView2WebResourceRequestedEventHandler]
@@ -415,14 +430,14 @@ type
       sender: ptr ICoreWebView2; args: ptr ICoreWebView2WebResourceRequestedEventArgs
     ): Hresult {.stdcall.}
 
-  CoreWebView2PermissionRequestedEventHandlerVtbl* = object
+  CoreWebView2PermissionRequestedEventHandlerVtbl * = object
     queryInterface*: QueryInterfaceProc[ICoreWebView2PermissionRequestedEventHandler]
     addRef*: AddRefProc[ICoreWebView2PermissionRequestedEventHandler]
     release*: ReleaseProc[ICoreWebView2PermissionRequestedEventHandler]
     invoke*: proc(self: ptr ICoreWebView2PermissionRequestedEventHandler;
       sender: ptr ICoreWebView2; args: pointer): Hresult {.stdcall.}
 
-  CreateCoreWebView2EnvironmentWithOptionsProc* = proc(
+  CreateCoreWebView2EnvironmentWithOptionsProc * = proc(
     browserExecutableFolder: Pcwstr;
     userDataFolder: Pcwstr;
     environmentOptions: ptr ICoreWebView2EnvironmentOptions;
@@ -435,13 +450,16 @@ const
   iidIUnknown* = Iid(
     data1: 0x00000000'u32, data2: 0x0000'u16, data3: 0x0000'u16,
     data4: [0xc0'u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46])
-  iidICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler* = Iid(
+  iidICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler * = Iid(
     data1: 0x4e8a3389'u32, data2: 0xc9d8'u16, data3: 0x4bd2'u16,
     data4: [0xb6'u8, 0xb5, 0x12, 0x4f, 0xee, 0x6c, 0xc1, 0x4d])
-  iidICoreWebView2CreateCoreWebView2ControllerCompletedHandler* = Iid(
+  iidICoreWebView2CreateCoreWebView2ControllerCompletedHandler * = Iid(
     data1: 0x6c4819f3'u32, data2: 0xc9b7'u16, data3: 0x4260'u16,
     data4: [0x81'u8, 0x27, 0xc9, 0xf5, 0xbd, 0xe7, 0xf6, 0x8c])
-  iidICoreWebView2WebResourceRequestedEventHandler* = Iid(
+  iidICoreWebView2WebMessageReceivedEventHandler * = Iid(
+    data1: 0x57213f19'u32, data2: 0x00e6'u16, data3: 0x49fa'u16,
+    data4: [0x8e'u8, 0x07, 0x89, 0x8e, 0xa0, 0x1e, 0xcb, 0xd2])
+  iidICoreWebView2WebResourceRequestedEventHandler * = Iid(
     data1: 0xab00b74c'u32, data2: 0x15f1'u16, data3: 0x4646'u16,
     data4: [0x80'u8, 0xe8, 0xe7, 0x63, 0x41, 0xd2, 0x5d, 0x71])
 
@@ -464,5 +482,7 @@ static:
   doAssert sizeof(CoreWebView2WebResourceRequestVtbl) == sizeof(pointer) * 10
   doAssert sizeof(CoreWebView2WebResourceRequestedEventArgsVtbl) ==
     sizeof(pointer) * 8
+  doAssert sizeof(CoreWebView2WebMessageReceivedEventArgsVtbl) ==
+    sizeof(pointer) * 6
   doAssert sizeof(CoreWebView2WebResourceResponseVtbl) == sizeof(pointer) * 10
   doAssert sizeof(CoreWebView2Vtbl) == sizeof(pointer) * 61

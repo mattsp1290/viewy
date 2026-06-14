@@ -9,8 +9,7 @@ import std/[locks, os, strutils, uri]
 import ../../api
 import ../../windows_webview2_pin
 import ./[com, webview2, win32]
-
-import jsony
+import ./ipc_bridge
 
 export api
 
@@ -60,7 +59,10 @@ type
     handles: WebView2Handles
     pending: seq[PendingOperation]
     dispatches: seq[DispatchSlot]
+    bindings: seq[Binding]
     schemes: seq[SchemeRegistration]
+    webMessageHandler: ptr WebMessageHandler
+    webMessageToken: EventRegistrationToken
     webResourceHandler: ptr WebResourceHandler
     webResourceToken: EventRegistrationToken
 
@@ -77,6 +79,15 @@ type
   SchemeRegistration = ref object
     scheme: string
     handler: AssetHandler
+
+  Binding = ref object
+    name: string
+    cb: BindCallback
+
+  WebMessageHandler = object
+    iface: ICoreWebView2WebMessageReceivedEventHandler
+    refs: Ulong
+    state: pointer
 
   WebResourceHandler = object
     iface: ICoreWebView2WebResourceRequestedEventHandler
@@ -332,6 +343,21 @@ proc findScheme(state: WindowsState; scheme: string): SchemeRegistration =
 proc hasScheme(state: WindowsState; scheme: string): bool =
   state.findScheme(scheme) != nil
 
+proc findBinding(state: WindowsState; name: string): Binding =
+  for binding in state.bindings:
+    if binding.name == name:
+      return binding
+
+proc removeBinding(state: WindowsState; name: string) =
+  for i in 0 ..< state.bindings.len:
+    if state.bindings[i].name == name:
+      state.bindings.delete i
+      return
+
+proc releaseWebMessageHandler(state: WindowsState)
+
+proc ensureWebMessageHandler(state: WindowsState)
+
 proc releaseWebResourceHandler(state: WindowsState)
 
 proc ensureWebResourceHandler(state: WindowsState)
@@ -347,9 +373,11 @@ proc closeFromUiThread(state: WindowsState) =
   shared.hwnd = nil
   release(shared.lock)
 
+  state.releaseWebMessageHandler()
   state.releaseWebResourceHandler()
   state.handles.releaseHandles()
   state.pending.setLen(0)
+  state.bindings.setLen(0)
   state.schemes.setLen(0)
   if hwnd != nil:
     discard destroyWindow(hwnd)
@@ -423,6 +451,36 @@ proc releaseControllerHandler(
       GC_unref(state)
     deallocShared(handler)
 
+proc queryWebMessage(self: ptr ICoreWebView2WebMessageReceivedEventHandler;
+    riid: Refiid; ppvObject: ptr pointer): Hresult {.stdcall.} =
+  if ppvObject == nil:
+    return eInvalidArg
+  if sameIid(riid, addr iidIUnknown) or
+      sameIid(riid, addr iidICoreWebView2WebMessageReceivedEventHandler):
+    ppvObject[] = cast[pointer](self)
+    discard cast[ptr WebMessageHandler](self).iface.lpVtbl.addRef(self)
+    return sOk
+  ppvObject[] = nil
+  eNoInterfaceLocal
+
+proc addRefWebMessage(self: ptr ICoreWebView2WebMessageReceivedEventHandler
+): Ulong {.stdcall.} =
+  let handler = cast[ptr WebMessageHandler](self)
+  inc handler.refs
+  handler.refs
+
+proc releaseWebMessage(self: ptr ICoreWebView2WebMessageReceivedEventHandler
+): Ulong {.stdcall.} =
+  let handler = cast[ptr WebMessageHandler](self)
+  let state = cast[WindowsState](handler.state)
+  if handler.refs > 0:
+    dec handler.refs
+  result = handler.refs
+  if result == 0:
+    if state != nil:
+      GC_unref(state)
+    deallocShared(handler)
+
 proc queryWebResource(
     self: ptr ICoreWebView2WebResourceRequestedEventHandler;
     riid: Refiid; ppvObject: ptr pointer): Hresult {.stdcall.} =
@@ -454,6 +512,79 @@ proc releaseWebResource(self: ptr ICoreWebView2WebResourceRequestedEventHandler
       GC_unref(state)
     deallocShared(handler)
 
+proc webMessageString(args: ptr ICoreWebView2WebMessageReceivedEventArgs): string =
+  if args == nil or args.lpVtbl == nil or
+      args.lpVtbl.tryGetWebMessageAsString == nil:
+    return ""
+  var message: Lpwstr
+  if succeeded(args.lpVtbl.tryGetWebMessageAsString(args, addr message)):
+    result = message.wideToString
+  freeWide(message)
+
+proc webMessageReceived(
+    self: ptr ICoreWebView2WebMessageReceivedEventHandler;
+    sender: ptr ICoreWebView2; args: ptr ICoreWebView2WebMessageReceivedEventArgs
+): Hresult {.stdcall.} =
+  discard sender
+  let state = cast[WindowsState](cast[ptr WebMessageHandler](self).state)
+  if state == nil or state.shared.closed:
+    return sOk
+  try:
+    let message = args.webMessageString
+    if message.len == 0:
+      return sOk
+    let payload = parseWindowsWebMessage(message)
+    let binding = state.findBinding(payload.name)
+    if binding != nil and not binding.cb.isNil:
+      binding.cb(payload.id, payload.jsonArgs)
+  except CatchableError:
+    discard
+  sOk
+
+var webMessageVtbl = CoreWebView2WebMessageReceivedEventHandlerVtbl(
+  queryInterface: queryWebMessage,
+  addRef: addRefWebMessage,
+  release: releaseWebMessage,
+  invoke: webMessageReceived,
+)
+
+proc newWebMessageHandler(state: WindowsState): ptr WebMessageHandler =
+  result = cast[ptr WebMessageHandler](allocShared0(sizeof(WebMessageHandler)))
+  if result == nil:
+    raise newException(WindowsBackendError,
+        "native Windows WebMessageReceived callback allocation failed")
+  result.iface.lpVtbl = addr webMessageVtbl
+  result.refs = 1
+  result.state = cast[pointer](state)
+  GC_ref(state)
+
+proc ensureWebMessageHandler(state: WindowsState) =
+  if state.webMessageHandler != nil or not state.webviewReady:
+    return
+  if state.handles.webview == nil or state.handles.webview.lpVtbl == nil:
+    return
+  let handler = state.newWebMessageHandler()
+  var token: EventRegistrationToken
+  let hr = state.handles.webview.lpVtbl.addWebMessageReceived(
+      state.handles.webview, addr handler.iface, addr token)
+  if failed(hr):
+    discard handler.iface.lpVtbl.release(addr handler.iface)
+    raise newException(WindowsBackendError,
+        "ICoreWebView2.add_WebMessageReceived failed")
+  state.webMessageHandler = handler
+  state.webMessageToken = token
+
+proc releaseWebMessageHandler(state: WindowsState) =
+  if state.webMessageHandler == nil:
+    return
+  if state.handles.webview != nil and state.handles.webview.lpVtbl != nil:
+    discard state.handles.webview.lpVtbl.removeWebMessageReceived(
+        state.handles.webview, state.webMessageToken)
+  discard state.webMessageHandler.iface.lpVtbl.release(
+      addr state.webMessageHandler.iface)
+  state.webMessageHandler = nil
+  state.webMessageToken = EventRegistrationToken()
+
 proc requestHeaders(request: ptr ICoreWebView2WebResourceRequest): seq[Header] =
   if request == nil or request.lpVtbl == nil:
     return @[]
@@ -477,8 +608,8 @@ proc requestHeaders(request: ptr ICoreWebView2WebResourceRequest): seq[Header] =
     var
       name: Lpwstr
       value: Lpwstr
-    if succeeded(headerIterator.lpVtbl.getCurrentHeader(headerIterator, addr name,
-        addr value)):
+    if succeeded(headerIterator.lpVtbl.getCurrentHeader(headerIterator,
+        addr name, addr value)):
       result.add Header((name: name.wideToString, value: value.wideToString))
     freeWide(name)
     freeWide(value)
@@ -535,15 +666,17 @@ proc makeStream(body: string): ptr IStream =
 proc applyWebResourceResponse(state: WindowsState;
     args: ptr ICoreWebView2WebResourceRequestedEventArgs;
     response: AssetResponse) =
-  if state.handles.environment == nil or state.handles.environment.lpVtbl == nil or
-      args == nil or args.lpVtbl == nil:
+  if state.handles.environment == nil or
+      state.handles.environment.lpVtbl == nil or args == nil or
+      args.lpVtbl == nil:
     return
   let status = if response.status >= 100: response.status else: 500
   let reason = reasonForStatus(status, response.statusText)
   let stream = response.body.makeStream()
   var webResponse: ptr ICoreWebView2WebResourceResponse
   let hr = createWebResourceResponse(state.handles.environment, stream,
-      Int(status), wide(reason), wide(response.responseHeaders), addr webResponse)
+      Int(status), wide(reason), wide(response.responseHeaders),
+          addr webResponse)
   releaseStream(stream)
   if failed(hr) or webResponse == nil:
     return
@@ -605,7 +738,8 @@ var webResourceVtbl = CoreWebView2WebResourceRequestedEventHandlerVtbl(
 )
 
 proc newWebResourceHandler(state: WindowsState): ptr WebResourceHandler =
-  result = cast[ptr WebResourceHandler](allocShared0(sizeof(WebResourceHandler)))
+  result = cast[ptr WebResourceHandler](allocShared0(sizeof(
+      WebResourceHandler)))
   if result == nil:
     raise newException(WindowsBackendError,
         "native Windows WebResourceRequested callback allocation failed")
@@ -742,6 +876,8 @@ proc invokeController(
     state.environmentReady = false
     return sOk
   state.webviewReady = true
+  if state.bindings.len > 0:
+    state.ensureWebMessageHandler()
   if state.schemes.len > 0:
     state.ensureWebResourceHandler()
   state.resizeWebview()
@@ -818,9 +954,7 @@ proc wndProc(hwnd: Hwnd; msg: Uint; wParam: Wparam;
         of hkEval:
           state.queueOrApply(pkEval, a)
         of hkResolve:
-          state.queueOrApply(pkEval, "if(window.__viewy&&window.__viewy._resolve)window.__viewy._resolve(" &
-              a.toJson() & "," & (if ok: "true" else: "false") & "," &
-              b.toJson() & ");")
+          state.queueOrApply(pkEval, windowsResolveScript(a, ok, b))
     return Lresult(0)
   else:
     discard
@@ -944,7 +1078,8 @@ proc dispatch(h: BackendHandle; fn: DispatchProc) {.gcsafe.} =
     deallocShared(payload)
     raise newException(WindowsBackendError, "PostMessageW failed")
 
-proc postHandoff(shared: ptr SharedState; payload: ptr HandoffPayload) {.gcsafe.} =
+proc postHandoff(shared: ptr SharedState;
+    payload: ptr HandoffPayload) {.gcsafe.} =
   if postMessageW(shared.hwnd, wmViewyHandoff, Wparam(0),
       cast[Lparam](payload)) == winFalse:
     freePayload(payload)
@@ -1016,27 +1151,33 @@ proc eval(h: BackendHandle; js: string) =
 proc init(h: BackendHandle; js: string) =
   h.toState.queueOrApply(pkInit, js)
 
-proc unsupported(op: string): ref WindowsBackendError =
-  newException(WindowsBackendError,
-      op & " is not implemented by the native Windows backend yet")
-
 proc bindFn(h: BackendHandle; name: string; cb: BindCallback) =
-  discard h
-  discard name
-  doAssert cb.isNil or not cb.isNil
-  raise unsupported("native Windows bind")
+  let state = h.toState
+  state.assertUiThread
+  state.requireOpen("native Windows bind")
+  if state.findBinding(name) != nil:
+    raise newException(WindowsBackendError,
+        "native Windows bind failed: duplicate binding " & name)
+  if cb.isNil:
+    raise newException(WindowsBackendError,
+        "native Windows bind failed: nil callback")
+  state.bindings.add Binding(name: name, cb: cb)
+  state.ensureWebMessageHandler()
+  let script = windowsBindScript(name)
+  state.queueOrApply(pkInit, script)
+  state.queueOrApply(pkEval, script)
 
 proc unbind(h: BackendHandle; name: string) =
-  discard h
-  discard name
-  raise unsupported("native Windows unbind")
+  let state = h.toState
+  state.assertUiThread
+  state.requireOpen("native Windows unbind")
+  state.removeBinding(name)
+  let script = windowsUnbindScript(name)
+  state.queueOrApply(pkInit, script)
+  state.queueOrApply(pkEval, script)
 
 proc resolve(h: BackendHandle; id: string; ok: bool; jsonResult: string) =
-  discard h
-  discard id
-  discard ok
-  discard jsonResult
-  raise unsupported("native Windows resolve")
+  h.toState.queueOrApply(pkEval, windowsResolveScript(id, ok, jsonResult))
 
 proc registerScheme(h: BackendHandle; scheme: string; handler: AssetHandler) =
   let state = h.toState
