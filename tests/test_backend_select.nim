@@ -57,6 +57,15 @@ static:
       checkpoint output
       check exitCode == 0
 
+    block:
+      let (output, exitCode) = nimCheck("""
+import viewy/backend/api
+static:
+  doAssert selectedBackendCaps == {}
+""", "--os:windows -d:viewyBackend=native")
+      checkpoint output
+      check exitCode == 0
+
   test "native selection rejects gtk4 flag":
     let (output, exitCode) = nimCheck("""
 import viewy/backend/select
