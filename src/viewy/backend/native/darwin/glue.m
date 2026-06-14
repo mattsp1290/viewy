@@ -3,6 +3,8 @@
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
 
+static const NSUInteger ViewyMaxSchemeBodyBytes = 10 * 1024 * 1024;
+
 @interface ViewyDarwinAppBox : NSObject
 @property(nonatomic, assign) ViewyDarwinMenuCallback menuCallback;
 @property(nonatomic, assign) void *menuUserdata;
@@ -41,18 +43,42 @@
 
 @end
 
+@class ViewyDarwinSchemeHandler;
+
+@interface ViewyDarwinSchemeRequest : NSObject
+@property(nonatomic, strong) id<WKURLSchemeTask> task;
+@property(nonatomic, strong) ViewyDarwinSchemeHandler *handler;
+@end
+
+@implementation ViewyDarwinSchemeRequest
+@end
+
 @interface ViewyDarwinSchemeHandler : NSObject <WKURLSchemeHandler>
 @property(nonatomic, assign) ViewyDarwinSchemeCallback callback;
 @property(nonatomic, assign) void *userdata;
+@property(nonatomic, strong) NSHashTable<id<WKURLSchemeTask>> *activeTasks;
 @end
 
 @implementation ViewyDarwinSchemeHandler
 
+- (instancetype)init {
+  self = [super init];
+  if (self) {
+    _activeTasks = [NSHashTable weakObjectsHashTable];
+  }
+  return self;
+}
+
 - (void)webView:(WKWebView *)webView
     startURLSchemeTask:(id<WKURLSchemeTask>)urlSchemeTask {
   (void)webView;
+  [self.activeTasks addObject:urlSchemeTask];
+  ViewyDarwinSchemeRequest *schemeRequest = [ViewyDarwinSchemeRequest new];
+  schemeRequest.task = urlSchemeTask;
+  schemeRequest.handler = self;
   if (!self.callback) {
-    viewy_darwin_scheme_finish((__bridge void *)urlSchemeTask, 404, "Not Found",
+    viewy_darwin_scheme_finish((__bridge_retained void *)schemeRequest, 404,
+                               "Not Found",
                                "text/plain; charset=utf-8", "[]",
                                (const uint8_t *)"not found", 9);
     return;
@@ -91,27 +117,50 @@
     NSMutableData *streamBody = [NSMutableData data];
     uint8_t buffer[4096];
     [request.HTTPBodyStream open];
-    while ([request.HTTPBodyStream hasBytesAvailable]) {
+    while (true) {
       NSInteger count =
           [request.HTTPBodyStream read:buffer maxLength:sizeof(buffer)];
-      if (count <= 0) {
+      if (count < 0) {
+        [request.HTTPBodyStream close];
+        viewy_darwin_scheme_finish((__bridge_retained void *)schemeRequest, 500,
+                                   "Internal Server Error",
+                                   "text/plain; charset=utf-8", "[]",
+                                   (const uint8_t *)"internal server error", 21);
+        return;
+      }
+      if (count == 0) {
         break;
+      }
+      if (streamBody.length + (NSUInteger)count > ViewyMaxSchemeBodyBytes) {
+        [request.HTTPBodyStream close];
+        viewy_darwin_scheme_finish((__bridge_retained void *)schemeRequest, 413,
+                                   "Payload Too Large",
+                                   "text/plain; charset=utf-8", "[]",
+                                   (const uint8_t *)"payload too large", 17);
+        return;
       }
       [streamBody appendBytes:buffer length:(NSUInteger)count];
     }
     [request.HTTPBodyStream close];
     body = streamBody;
+  } else if (body.length > ViewyMaxSchemeBodyBytes) {
+    viewy_darwin_scheme_finish((__bridge_retained void *)schemeRequest, 413,
+                               "Payload Too Large",
+                               "text/plain; charset=utf-8", "[]",
+                               (const uint8_t *)"payload too large", 17);
+    return;
   }
 
-  self.callback(self.userdata, (__bridge void *)urlSchemeTask, scheme.UTF8String,
-                method.UTF8String, path.UTF8String, query.UTF8String,
-                headersJson.UTF8String, body.bytes, (int64_t)body.length);
+  self.callback(self.userdata, (__bridge_retained void *)schemeRequest,
+                scheme.UTF8String, method.UTF8String, path.UTF8String,
+                query.UTF8String, headersJson.UTF8String, body.bytes,
+                (int64_t)body.length);
 }
 
 - (void)webView:(WKWebView *)webView
     stopURLSchemeTask:(id<WKURLSchemeTask>)urlSchemeTask {
   (void)webView;
-  (void)urlSchemeTask;
+  [self.activeTasks removeObject:urlSchemeTask];
 }
 
 @end
@@ -129,6 +178,7 @@
 @property(nonatomic, assign) void *messageUserdata;
 @property(nonatomic, assign) ViewyDarwinEventCallback eventCallback;
 @property(nonatomic, assign) void *eventUserdata;
+@property(nonatomic, assign) BOOL hasLoaded;
 @end
 
 @implementation ViewyDarwinWindowBox
@@ -494,6 +544,7 @@ void viewy_darwin_window_set_html(ViewyDarwinWindow *window, const char *html) {
   if (!window) {
     return;
   }
+  window->box.hasLoaded = YES;
   [window->box.webView loadHTMLString:ViewyString(html) baseURL:nil];
 }
 
@@ -503,6 +554,7 @@ void viewy_darwin_window_navigate(ViewyDarwinWindow *window, const char *url) {
   }
   NSURL *nsurl = [NSURL URLWithString:ViewyString(url)];
   if (nsurl) {
+    window->box.hasLoaded = YES;
     [window->box.webView loadRequest:[NSURLRequest requestWithURL:nsurl]];
   }
 }
@@ -595,7 +647,8 @@ int32_t viewy_darwin_register_scheme(ViewyDarwinWindow *window,
     return 0;
   }
   NSString *schemeName = ViewyString(scheme);
-  if (schemeName.length == 0 || window->box.schemeHandlers[schemeName]) {
+  if (schemeName.length == 0 || window->box.schemeHandlers[schemeName] ||
+      window->box.hasLoaded) {
     return 0;
   }
 
@@ -618,8 +671,11 @@ void viewy_darwin_scheme_finish(void *request, int32_t status,
                                 const char *mime_type,
                                 const char *headers_json,
                                 const uint8_t *body, int64_t body_len) {
-  id<WKURLSchemeTask> task = (__bridge id<WKURLSchemeTask>)request;
-  if (!task) {
+  ViewyDarwinSchemeRequest *schemeRequest =
+      (__bridge_transfer ViewyDarwinSchemeRequest *)request;
+  id<WKURLSchemeTask> task = schemeRequest.task;
+  ViewyDarwinSchemeHandler *handler = schemeRequest.handler;
+  if (!task || !handler || ![handler.activeTasks containsObject:task]) {
     return;
   }
 
@@ -654,12 +710,18 @@ void viewy_darwin_scheme_finish(void *request, int32_t status,
                                   statusCode:code
                                  HTTPVersion:@"HTTP/1.1"
                                 headerFields:headers];
-  [task didReceiveResponse:response];
-  if (body && body_len > 0) {
-    NSData *data = [NSData dataWithBytes:body length:(NSUInteger)body_len];
-    [task didReceiveData:data];
+  @try {
+    [task didReceiveResponse:response];
+    if (body && body_len > 0) {
+      NSData *data = [NSData dataWithBytes:body length:(NSUInteger)body_len];
+      [task didReceiveData:data];
+    }
+    [task didFinish];
+  } @catch (NSException *exception) {
+    (void)exception;
+  } @finally {
+    [handler.activeTasks removeObject:task];
   }
-  [task didFinish];
 }
 
 int32_t viewy_darwin_set_app_menu(ViewyDarwinApp *app, const char *json_menu,

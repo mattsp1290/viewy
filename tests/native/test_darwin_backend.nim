@@ -46,6 +46,13 @@ else:
     nativeBackend.setTitle(h, "Viewy Darwin native smoke")
     nativeBackend.setSize(h, 320, 240, whMin)
     nativeBackend.setHtml(h, "<!doctype html><p>viewy native macOS</p>")
+    doAssertRaises(DarwinBackendError):
+      nativeBackend.registerScheme(h, "late", proc(
+          request: AssetRequest): AssetResponse {.gcsafe.} =
+        discard request
+        AssetResponse(status: 200, statusText: "OK",
+          mimeType: "text/plain", body: "")
+      )
     nativeBackend.dispatchTerminate(h)
     nativeBackend.run(h)
     doAssert dispatched
