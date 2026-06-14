@@ -1,8 +1,202 @@
-# Native backend design notes
+# Native Backends
 
-This document records Phase 0 interface decisions for the v2 native-backend
-work. Platform-specific implementation details will expand here as Linux,
-macOS, and Windows backends land.
+viewy has two backend families:
+
+- `lite`, the compatibility backend backed by `webview/webview`;
+- `native`, the per-platform backend family that talks directly to desktop
+  APIs.
+
+The public app API does not change between them. Backend selection is a
+compile-time choice (`-d:viewyBackend=lite|native`), and native-only features
+are exposed through capability gates rather than through platform-specific app
+code.
+
+This document describes the native backend architecture, the uniform Nim
+backend contract, the custom asset-scheme model, and the interface section that
+was frozen for Windows native work.
+
+## Current Capability Matrix
+
+Capabilities are advertised by `selectedBackendCaps` in
+`src/viewy/backend/api.nim` and by each backend's runtime `caps` field. Code
+that needs a capability should use the backend API helpers instead of branching
+on operating system names.
+
+| Backend selection | Platform | Capabilities |
+| --- | --- | --- |
+| `-d:viewyBackend=lite` | all supported platforms | none |
+| `-d:viewyBackend=native` | Linux | `capScheme` |
+| `-d:viewyBackend=native` | macOS | `capScheme`, `capMenu`, `capTray`, `capWindowEvents` |
+| `-d:viewyBackend=native` | Windows | `capScheme` |
+| `-d:viewyBackend=native` | unsupported platforms | none; backend construction fails at compile time |
+
+This matrix is intentionally capability-based. Windows menu/tray work, Linux
+tray/menu work, and future lifecycle hooks should update the table only when
+their backend slots and tests land.
+
+## Uniform Backend API
+
+Every backend implements the vtable-style `Backend` object in
+`src/viewy/backend/api.nim`. The slots divide into four groups.
+
+Lifecycle slots:
+
+- `create(debug)` creates a native window/webview handle.
+- `run(handle)` enters the platform event loop and blocks until termination.
+- `terminate(handle)` requests shutdown from the UI thread.
+- `destroy(handle)` releases backend-owned resources after the loop stops.
+
+Webview slots:
+
+- `setTitle`, `setSize`, `navigate`, and `setHtml` control the window and page
+  load state.
+- `eval` evaluates JavaScript in the active page.
+- `init` registers JavaScript that runs before page scripts.
+- `bindFn`, `unbind`, and `resolve` implement `window.<name>(...)` Promise
+  bindings and complete pending calls.
+
+Typed handoff slots:
+
+- `dispatchEval` schedules backend-to-JavaScript event delivery.
+- `dispatchResolve` completes a pending binding Promise from a worker or async
+  continuation.
+- `dispatchTerminate` requests shutdown from any thread.
+- `dispatch` remains available for UI-thread-created work, but worker-created
+  closures must not cross thread boundaries.
+
+Capability-gated slots:
+
+- `capScheme` requires `registerSchemeImpl`.
+- `capMenu` requires `setAppMenuImpl`.
+- `capTray` requires `trayCreateImpl`, `trayUpdateImpl`, and `trayDestroyImpl`.
+- `capWindowEvents` requires `onWindowEventImpl`.
+
+All synchronous slots are UI-thread operations. Worker-safe slots must copy
+payloads into unmanaged storage before crossing threads, then reconstruct
+Nim-managed values on the destination UI thread. The detailed ownership rules
+are in [threading.md](threading.md).
+
+## Runtime JavaScript And IPC
+
+High-level app startup injects `viewyRuntimeJs`, which creates
+`window.__viewy.call`, `window.__viewy.on`, `window.__viewy.off`, and
+`window.__viewy.emit`.
+
+Backends are responsible for making each exposed binding name available as a
+Promise-returning `window.<name>` function. The native bridge contract is:
+
+1. `window.<name>(...args)` creates a unique request id.
+2. It sends an envelope containing `name`, `id`, and `args`, where `args` is a
+   JSON string for the positional argument array.
+3. The backend invokes the Nim `BindCallback(id, jsonArgs)` on the UI thread.
+4. The app layer calls `resolve` or `dispatchResolve` with the same id and a
+   JSON result string.
+5. The injected bridge resolves or rejects the original JavaScript Promise.
+
+Linux and macOS send envelopes through WebKit script message handlers. Windows
+sends string messages through `chrome.webview.postMessage` and receives them via
+WebView2 `WebMessageReceived`.
+
+## Asset Scheme Model
+
+Scheme asset mode generates an embedded multi-file `dist/` table and asks the
+selected backend to serve it through `registerScheme`.
+
+The backend-facing request/response model is backend-neutral:
+
+- `AssetRequest.scheme` is the logical scheme name, currently `viewy`.
+- `httpMethod`, `path`, `query`, `headers`, and `body` are Nim-owned copies.
+- `AssetResponse` returns status, reason phrase, MIME type, headers, and body
+  bytes.
+
+The handler runs on the backend UI thread. If a platform receives native scheme
+requests on another thread, it must first hop to the UI thread with unmanaged
+storage and build the Nim request there.
+
+Platform URL details differ:
+
+- Linux registers the custom URI scheme with WebKitGTK.
+- macOS registers `viewy://` with `WKURLSchemeHandler`.
+- Windows maps `viewy://app/...` navigations onto
+  `https://viewy.localhost/...` and serves them with WebView2
+  `WebResourceRequested`, because WebView2 virtual-host style requests behave
+  more like a secure browser origin than an arbitrary custom scheme.
+
+The app and asset layers should treat those details as backend implementation
+choices. The public capability is still `capScheme`.
+
+## Platform Architecture
+
+### Linux
+
+The Linux native backend is a direct GTK/WebKitGTK implementation under
+`src/viewy/backend/native/linux/`.
+
+- `gtk_ffi.nim` declares the GTK functions needed for the window and event
+  loop.
+- `webkitgtk_ffi.nim` declares the WebKitGTK webview, user-script,
+  JavaScript-evaluation, message-handler, and URI-scheme APIs.
+- `backend.nim` owns the GTK window, WebKit webview, JavaScript bindings,
+  typed handoff payloads, and `capScheme` registration.
+
+Linux currently advertises `capScheme`. Tray and native menu work is tracked by
+separate beads and should not be inferred from the existence of the native
+window backend.
+
+### macOS
+
+The macOS native backend is split between Nim ownership code and small
+Objective-C glue under `src/viewy/backend/native/darwin/`.
+
+- `backend.nim` implements the backend contract, binding table, scheme/menu/tray
+  callback routing, and typed handoffs.
+- `glue.m` and `glue.h` wrap Cocoa and WebKit APIs that are more practical to
+  express in Objective-C than in Nim imports.
+- The backend uses `WKWebView`, `WKUserContentController`,
+  `WKURLSchemeHandler`, `NSMenu`, and `NSStatusItem`.
+
+macOS currently advertises `capScheme`, `capMenu`, `capTray`, and
+`capWindowEvents`.
+
+### Windows
+
+The Windows native backend is a hand-written Win32/WebView2 implementation under
+`src/viewy/backend/native/windows/`.
+
+- `win32.nim` declares the required Win32, COM initialization, memory, and
+  shell helpers.
+- `com.nim` declares only the WebView2 COM interfaces the backend uses, pinned
+  against the vendored SDK metadata.
+- `webview2.nim` contains lifecycle helpers for environment/controller creation
+  and baseline WebView2 settings.
+- `webview2_loader.cc` is the small C++ translation unit used to load the
+  WebView2 runtime entry point.
+- `ipc_bridge.nim` contains pure JavaScript/envelope helpers for the WebView2
+  binding bridge.
+- `backend.nim` owns the Win32 window, message loop, WebView2 handles, binding
+  callbacks, virtual-host scheme handling, and typed handoff payloads.
+
+Windows currently advertises `capScheme`. IPC and init-script parity are
+implemented with `AddScriptToExecuteOnDocumentCreated` and
+`WebMessageReceived`. Scheme mode maps to `https://viewy.localhost/` through
+WebView2 `WebResourceRequested`.
+
+## Conformance And Gates
+
+The test suite is organized in [tests/tiers.md](../tests/tiers.md).
+
+- Tier 1 tests run headlessly and validate backend-neutral logic, RPC wrappers,
+  runtime JavaScript, asset routing, and bridge helper contracts.
+- Native compile smokes type-check platform FFI declarations and backend slot
+  availability. They are gated by OS when the host cannot compile or run that
+  platform's native code.
+- Tier 2 tests create real windows and run against `-d:viewyBackend=lite` or
+  `-d:viewyBackend=native` on hosts that can display the selected backend.
+
+New backend capabilities should land with the narrowest useful tests first:
+pure contract tests for serializable logic, compile smokes for platform FFI
+shape, and windowed parity tests when the host environment can actually run the
+backend.
 
 ## Interface Freeze
 
@@ -62,12 +256,13 @@ the backend UI thread must use unmanaged handoff storage as described in
 [threading.md](threading.md); Nim-managed closures, strings, seqs, refs, or
 objects must not cross those thread boundaries directly.
 
-Selected backend capability gates are also frozen. As of this tag:
+Selected backend capability gates are also part of the contract. Current gates:
 
 - `-d:viewyBackend=lite` advertises no native capabilities.
 - `-d:viewyBackend=native` on Linux advertises `capScheme`.
 - `-d:viewyBackend=native` on macOS advertises `capScheme`, `capMenu`,
   `capTray`, and `capWindowEvents`.
+- `-d:viewyBackend=native` on Windows advertises `capScheme`.
 - `-d:viewyBackend=native` on unsupported platforms advertises no capabilities;
   importing `viewy/backend/select` and calling `newBackend()` fails at compile
   time until that platform backend lands.
