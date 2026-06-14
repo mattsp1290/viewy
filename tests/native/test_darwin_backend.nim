@@ -25,9 +25,9 @@ else:
   doAssert nativeBackend.bindFn != nil
   doAssert nativeBackend.unbind != nil
   doAssert nativeBackend.resolve != nil
-  doAssert nativeBackend.caps == {capWindowEvents}
+  doAssert nativeBackend.caps == {capScheme, capWindowEvents}
   doAssert nativeBackend.onWindowEventImpl != nil
-  doAssert nativeBackend.registerSchemeImpl == nil
+  doAssert nativeBackend.registerSchemeImpl != nil
   doAssert nativeBackend.setAppMenuImpl == nil
   doAssert nativeBackend.trayCreateImpl == nil
   doAssert nativeBackend.trayUpdateImpl == nil

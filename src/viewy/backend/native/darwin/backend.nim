@@ -5,6 +5,7 @@ import std/[locks, os, strutils]
 import ../../api
 
 import jsony
+import zippy
 
 export api
 
@@ -18,6 +19,7 @@ type
   DarwinBackendError* = object of CatchableError
 
   ConstCString {.importc: "const char *", nodecl.} = distinct cstring
+  ConstUint8Ptr {.importc: "const uint8_t *", nodecl.} = distinct pointer
   ViewyDarwinApp {.importc: "ViewyDarwinApp", header: "glue.h",
       incompleteStruct.} = object
   ViewyDarwinWindow {.importc: "ViewyDarwinWindow", header: "glue.h",
@@ -28,6 +30,9 @@ type
   DarwinEventCallback = proc(userdata: pointer; kind, width,
       height: int32) {.cdecl, gcsafe.}
   DarwinDispatchCallback = proc(userdata: pointer) {.cdecl, gcsafe.}
+  DarwinSchemeCallback = proc(userdata, request: pointer; scheme, httpMethod,
+      path, query, headersJson: ConstCString; body: ConstUint8Ptr;
+      bodyLen: int64) {.cdecl, gcsafe.}
 
   SharedState = object
     lock: Lock
@@ -40,6 +45,7 @@ type
   DarwinState = ref object
     shared: ptr SharedState
     bindings: seq[Binding]
+    schemes: seq[SchemeRegistration]
     dispatches: seq[DispatchSlot]
     handlerRegistered: bool
     eventCallback: WindowEventCallback
@@ -47,6 +53,14 @@ type
   Binding = ref object
     name: string
     cb: BindCallback
+
+  SchemeRegistration = ref object
+    scheme: string
+    handler: AssetHandler
+
+  HeaderJson = object
+    name: string
+    value: string
 
   DispatchSlot = ref object
     fn: DispatchProc
@@ -112,6 +126,12 @@ proc viewyDarwinResolve(window: ptr ViewyDarwinWindow; id: cstring;
 proc viewyDarwinSetEventCallback(window: ptr ViewyDarwinWindow;
     callback: DarwinEventCallback; userdata: pointer) {.
     importc: "viewy_darwin_set_event_callback", header: "glue.h".}
+proc viewyDarwinRegisterScheme(window: ptr ViewyDarwinWindow; scheme: cstring;
+    callback: DarwinSchemeCallback; userdata: pointer): int32 {.
+    importc: "viewy_darwin_register_scheme", header: "glue.h".}
+proc viewyDarwinSchemeFinish(request: pointer; status: int32; statusText,
+    mimeType, headersJson: cstring; body: pointer; bodyLen: int64) {.
+    importc: "viewy_darwin_scheme_finish", header: "glue.h".}
 
 const nativeHandlerName = "viewy"
 
@@ -167,6 +187,23 @@ proc freePayload(payload: ptr HandoffPayload) {.gcsafe.} =
     payload.b.free()
     deallocShared(payload)
 
+proc bodyToString(body: pointer; bodyLen: int64): string =
+  if body == nil or bodyLen <= 0:
+    return ""
+  result = newString(bodyLen.int)
+  copyMem(addr result[0], body, bodyLen.int)
+
+proc headerItems(headers: openArray[Header]): seq[HeaderJson] =
+  for header in headers:
+    result.add HeaderJson(name: header.name, value: header.value)
+
+proc headersFromJson(headersJson: string): seq[Header] =
+  try:
+    for item in headersJson.fromJson(seq[HeaderJson]):
+      result.add Header((name: item.name, value: item.value))
+  except CatchableError:
+    result = @[]
+
 proc newPayload(shared: ptr SharedState; kind: HandoffKind; a = ""; b = "";
     ok = false): ptr HandoffPayload =
   result = cast[ptr HandoffPayload](allocShared0(sizeof(HandoffPayload)))
@@ -186,6 +223,45 @@ proc findBinding(state: DarwinState; name: string): Binding =
   for binding in state.bindings:
     if binding.name == name:
       return binding
+
+proc findScheme(state: DarwinState; scheme: string): SchemeRegistration =
+  for registration in state.schemes:
+    if registration.scheme == scheme:
+      return registration
+
+proc hasScheme(state: DarwinState; scheme: string): bool =
+  state.findScheme(scheme) != nil
+
+proc headerValue(headers: openArray[Header]; name: string): string =
+  for header in headers:
+    if cmpIgnoreCase(header.name, name) == 0:
+      return header.value
+
+proc withoutHeader(headers: openArray[Header]; name: string): seq[Header] =
+  for header in headers:
+    if cmpIgnoreCase(header.name, name) != 0:
+      result.add header
+
+proc normalizeSchemeResponse(response: AssetResponse): AssetResponse =
+  result = response
+  if cmpIgnoreCase(response.headers.headerValue("Content-Encoding"),
+      "gzip") != 0:
+    return
+  try:
+    result.body = uncompress(response.body)
+    result.headers = response.headers.withoutHeader("Content-Encoding")
+    result.headers = result.headers.withoutHeader("Content-Length")
+  except CatchableError:
+    discard
+
+proc schemeTextResponse(status: int; statusText, body: string): AssetResponse =
+  AssetResponse(
+    status: status,
+    statusText: statusText,
+    mimeType: "text/plain; charset=utf-8",
+    headers: @[(name: "Cache-Control", value: "no-store")],
+    body: body,
+  )
 
 proc removeBinding(state: DarwinState; name: string) =
   for i in 0 ..< state.bindings.len:
@@ -227,6 +303,63 @@ proc messageCb(userdata: pointer; name, id,
   let binding = state.findBinding(name.cstringToString)
   if binding != nil:
     binding.cb(id.cstringToString, jsonArgs.cstringToString)
+
+proc schemeCb(userdata, request: pointer; scheme, httpMethod, path, query,
+    headersJson: ConstCString; body: ConstUint8Ptr; bodyLen: int64) {.cdecl,
+    gcsafe.} =
+  let state = cast[DarwinState](userdata)
+  try:
+    if state == nil or state.shared == nil or state.shared.closed:
+      let response = schemeTextResponse(404, "Not Found", "not found")
+      let headers = response.headers.headerItems.toJson()
+      viewyDarwinSchemeFinish(request, response.status.int32,
+        response.statusText.cstring, response.mimeType.cstring, headers.cstring,
+        cast[pointer](unsafeAddr response.body[0]), response.body.len.int64)
+      return
+
+    let schemeName = scheme.cstringToString
+    let registration = state.findScheme(schemeName)
+    if registration == nil:
+      let response = schemeTextResponse(404, "Not Found", "not found")
+      let headers = response.headers.headerItems.toJson()
+      viewyDarwinSchemeFinish(request, response.status.int32,
+        response.statusText.cstring, response.mimeType.cstring, headers.cstring,
+        cast[pointer](unsafeAddr response.body[0]), response.body.len.int64)
+      return
+
+    var httpVerb = httpMethod.cstringToString.toUpperAscii
+    if httpVerb.len == 0:
+      httpVerb = "GET"
+    let bodyString =
+      if httpVerb in ["GET", "HEAD"]:
+        ""
+      else:
+        cast[pointer](body).bodyToString(bodyLen)
+    let assetRequest = AssetRequest(
+      scheme: schemeName,
+      httpMethod: httpVerb,
+      path: path.cstringToString,
+      query: query.cstringToString,
+      headers: headersJson.cstringToString.headersFromJson,
+      body: bodyString,
+    )
+    let response = registration.handler(assetRequest).normalizeSchemeResponse
+    let headers = response.headers.headerItems.toJson()
+    let bodyPtr =
+      if response.body.len == 0:
+        nil
+      else:
+        cast[pointer](unsafeAddr response.body[0])
+    viewyDarwinSchemeFinish(request, response.status.int32,
+      response.statusText.cstring, response.mimeType.cstring, headers.cstring,
+      bodyPtr, response.body.len.int64)
+  except CatchableError:
+    let response = schemeTextResponse(500, "Internal Server Error",
+      "internal server error")
+    let headers = response.headers.headerItems.toJson()
+    viewyDarwinSchemeFinish(request, response.status.int32,
+      response.statusText.cstring, response.mimeType.cstring, headers.cstring,
+      cast[pointer](unsafeAddr response.body[0]), response.body.len.int64)
 
 proc eventCb(userdata: pointer; kind, width, height: int32) {.cdecl, gcsafe.} =
   let state = cast[DarwinState](userdata)
@@ -306,7 +439,8 @@ proc create(debug: bool): BackendHandle =
     deinitLock(shared.lock)
     deallocShared(shared)
     raise newException(DarwinBackendError, "viewy_darwin_window_create failed")
-  let state = DarwinState(shared: shared, bindings: @[], dispatches: @[])
+  let state = DarwinState(shared: shared, bindings: @[], schemes: @[],
+      dispatches: @[])
   shared.owner = cast[pointer](state)
   viewyDarwinSetEventCallback(shared.window, eventCb, cast[pointer](state))
   GC_ref(state)
@@ -334,6 +468,7 @@ proc destroy(h: BackendHandle) =
     viewyDarwinAppDestroy(shared.app)
     shared.app = nil
   state.bindings.setLen(0)
+  state.schemes.setLen(0)
   state.dispatches.setLen(0)
   state.eventCallback = nil
   shared.owner = nil
@@ -445,6 +580,24 @@ proc unbind(h: BackendHandle; name: string) =
       jsCall("if(window.__viewy&&window.__viewy._b)delete window.__viewy._b[" &
       name.toJson() & "];delete window[" & name.toJson() & "];").cstring)
 
+proc registerScheme(h: BackendHandle; scheme: string; handler: AssetHandler) =
+  let state = h.toState
+  state.assertUiThread
+  if scheme.len == 0:
+    raise newException(DarwinBackendError,
+        "native macOS scheme registration failed: empty scheme")
+  if handler.isNil:
+    raise newException(DarwinBackendError,
+        "native macOS scheme registration failed: nil handler")
+  if state.hasScheme(scheme):
+    raise newException(DarwinBackendError,
+        "native macOS scheme registration failed: duplicate scheme " & scheme)
+  if viewyDarwinRegisterScheme(state.shared.window, scheme.cstring, schemeCb,
+      cast[pointer](state)) == 0:
+    raise newException(DarwinBackendError,
+        "viewy_darwin_register_scheme failed")
+  state.schemes.add SchemeRegistration(scheme: scheme, handler: handler)
+
 proc resolve(h: BackendHandle; id: string; ok: bool; jsonResult: string) =
   viewyDarwinResolve(h.toState.shared.window, id.cstring, (if ok: 1'i32 else: 0'i32),
       jsonResult.cstring)
@@ -471,6 +624,7 @@ proc newBackend*(): Backend =
     bindFn: bindFn,
     unbind: unbind,
     resolve: resolve,
-    caps: {capWindowEvents},
+    caps: {capScheme, capWindowEvents},
+    registerSchemeImpl: registerScheme,
     onWindowEventImpl: onWindowEvent,
   )

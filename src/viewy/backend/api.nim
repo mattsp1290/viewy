@@ -218,7 +218,7 @@ const selectedBackend* {.strdefine: "viewyBackend".} = "native"
 
 when selectedBackend == "native":
   when defined(macosx):
-    const selectedBackendCaps*: set[Capability] = {capWindowEvents}
+    const selectedBackendCaps*: set[Capability] = {capScheme, capWindowEvents}
   else:
     const selectedBackendCaps*: set[Capability] = {capScheme}
 elif selectedBackend == "lite":

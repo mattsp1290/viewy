@@ -41,11 +41,90 @@
 
 @end
 
+@interface ViewyDarwinSchemeHandler : NSObject <WKURLSchemeHandler>
+@property(nonatomic, assign) ViewyDarwinSchemeCallback callback;
+@property(nonatomic, assign) void *userdata;
+@end
+
+@implementation ViewyDarwinSchemeHandler
+
+- (void)webView:(WKWebView *)webView
+    startURLSchemeTask:(id<WKURLSchemeTask>)urlSchemeTask {
+  (void)webView;
+  if (!self.callback) {
+    viewy_darwin_scheme_finish((__bridge void *)urlSchemeTask, 404, "Not Found",
+                               "text/plain; charset=utf-8", "[]",
+                               (const uint8_t *)"not found", 9);
+    return;
+  }
+
+  NSURLRequest *request = urlSchemeTask.request;
+  NSURL *url = request.URL;
+  NSURLComponents *components =
+      url ? [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO]
+          : nil;
+  NSString *scheme = url.scheme ?: @"";
+  NSString *method = request.HTTPMethod ?: @"GET";
+  NSString *path = components.path.length > 0 ? components.path : @"/";
+  NSString *query = components.query ?: @"";
+
+  NSMutableArray<NSDictionary *> *headers = [NSMutableArray array];
+  [request.allHTTPHeaderFields
+      enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *value,
+                                           BOOL *stop) {
+        (void)stop;
+        [headers addObject:@{
+          @"name" : key ?: @"",
+          @"value" : value ?: @""
+        }];
+      }];
+  NSData *headersData = [NSJSONSerialization dataWithJSONObject:headers
+                                                        options:0
+                                                          error:nil];
+  NSString *headersJson =
+      headersData ? [[NSString alloc] initWithData:headersData
+                                          encoding:NSUTF8StringEncoding]
+                  : @"[]";
+
+  NSData *body = request.HTTPBody;
+  if (!body && request.HTTPBodyStream) {
+    NSMutableData *streamBody = [NSMutableData data];
+    uint8_t buffer[4096];
+    [request.HTTPBodyStream open];
+    while ([request.HTTPBodyStream hasBytesAvailable]) {
+      NSInteger count =
+          [request.HTTPBodyStream read:buffer maxLength:sizeof(buffer)];
+      if (count <= 0) {
+        break;
+      }
+      [streamBody appendBytes:buffer length:(NSUInteger)count];
+    }
+    [request.HTTPBodyStream close];
+    body = streamBody;
+  }
+
+  self.callback(self.userdata, (__bridge void *)urlSchemeTask, scheme.UTF8String,
+                method.UTF8String, path.UTF8String, query.UTF8String,
+                headersJson.UTF8String, body.bytes, (int64_t)body.length);
+}
+
+- (void)webView:(WKWebView *)webView
+    stopURLSchemeTask:(id<WKURLSchemeTask>)urlSchemeTask {
+  (void)webView;
+  (void)urlSchemeTask;
+}
+
+@end
+
 @interface ViewyDarwinWindowBox : NSObject <WKScriptMessageHandler,
                                             NSWindowDelegate>
 @property(nonatomic, strong) NSWindow *window;
 @property(nonatomic, strong) WKWebView *webView;
 @property(nonatomic, strong) NSMutableSet<NSString *> *handlerNames;
+@property(nonatomic, strong)
+    NSMutableDictionary<NSString *, ViewyDarwinSchemeHandler *> *schemeHandlers;
+@property(nonatomic, strong) NSMutableArray<NSString *> *userScripts;
+@property(nonatomic, assign) BOOL debug;
 @property(nonatomic, assign) ViewyDarwinMessageCallback messageCallback;
 @property(nonatomic, assign) void *messageUserdata;
 @property(nonatomic, assign) ViewyDarwinEventCallback eventCallback;
@@ -58,6 +137,8 @@
   self = [super init];
   if (self) {
     _handlerNames = [NSMutableSet set];
+    _schemeHandlers = [NSMutableDictionary dictionary];
+    _userScripts = [NSMutableArray array];
   }
   return self;
 }
@@ -241,6 +322,46 @@ static NSMenu *ViewyBuildMenu(NSArray *items, ViewyDarwinMenuCallback callback,
   return menu;
 }
 
+static WKWebViewConfiguration *ViewyBuildWebViewConfiguration(
+    ViewyDarwinWindowBox *box) {
+  WKWebViewConfiguration *config = [WKWebViewConfiguration new];
+  WKUserContentController *controller = [WKUserContentController new];
+  config.userContentController = controller;
+
+  for (NSString *source in box.userScripts) {
+    WKUserScript *script = [[WKUserScript alloc]
+          initWithSource:source
+           injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+        forMainFrameOnly:YES];
+    [controller addUserScript:script];
+  }
+  for (NSString *handler in box.handlerNames) {
+    [controller addScriptMessageHandler:box name:handler];
+  }
+  for (NSString *scheme in box.schemeHandlers) {
+    [config setURLSchemeHandler:box.schemeHandlers[scheme] forURLScheme:scheme];
+  }
+
+  if (box.debug) {
+    if (@available(macOS 13.3, *)) {
+      [config.preferences setValue:@YES forKey:@"developerExtrasEnabled"];
+    }
+  }
+  return config;
+}
+
+static void ViewyRebuildWebView(ViewyDarwinWindow *window) {
+  if (!window || !window->box.window) {
+    return;
+  }
+  NSRect frame = window->box.webView ? window->box.webView.frame
+                                     : window->box.window.contentView.bounds;
+  WKWebViewConfiguration *config = ViewyBuildWebViewConfiguration(window->box);
+  window->box.webView = [[WKWebView alloc] initWithFrame:frame
+                                           configuration:config];
+  window->box.window.contentView = window->box.webView;
+}
+
 static void ViewyEnsureApp(void) {
   NSApplication *app = [NSApplication sharedApplication];
   [app setActivationPolicy:NSApplicationActivationPolicyRegular];
@@ -307,15 +428,7 @@ ViewyDarwinWindow *viewy_darwin_window_create(ViewyDarwinApp *app,
     }
 
     ViewyDarwinWindowBox *box = [ViewyDarwinWindowBox new];
-    WKWebViewConfiguration *config = [WKWebViewConfiguration new];
-    WKUserContentController *controller = [WKUserContentController new];
-    config.userContentController = controller;
-
-    if (debug) {
-      if (@available(macOS 13.3, *)) {
-        [config.preferences setValue:@YES forKey:@"developerExtrasEnabled"];
-      }
-    }
+    box.debug = debug != 0;
 
     NSRect frame = NSMakeRect(0, 0, 800, 600);
     NSUInteger style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
@@ -325,7 +438,9 @@ ViewyDarwinWindow *viewy_darwin_window_create(ViewyDarwinApp *app,
                                              styleMask:style
                                                backing:NSBackingStoreBuffered
                                                  defer:NO];
-    box.webView = [[WKWebView alloc] initWithFrame:frame configuration:config];
+    box.webView = [[WKWebView alloc]
+        initWithFrame:frame
+        configuration:ViewyBuildWebViewConfiguration(box)];
     box.window.contentView = box.webView;
     box.window.delegate = box;
     [box.window center];
@@ -408,6 +523,7 @@ void viewy_darwin_window_init_script(ViewyDarwinWindow *window, const char *js) 
         initWithSource:ViewyString(js)
          injectionTime:WKUserScriptInjectionTimeAtDocumentStart
       forMainFrameOnly:YES];
+  [window->box.userScripts addObject:ViewyString(js)];
   [window->box.webView.configuration.userContentController addUserScript:script];
 }
 
@@ -469,6 +585,81 @@ void viewy_darwin_set_event_callback(ViewyDarwinWindow *window,
   }
   window->box.eventCallback = callback;
   window->box.eventUserdata = userdata;
+}
+
+int32_t viewy_darwin_register_scheme(ViewyDarwinWindow *window,
+                                      const char *scheme,
+                                      ViewyDarwinSchemeCallback callback,
+                                      void *userdata) {
+  if (!window || !scheme || !callback) {
+    return 0;
+  }
+  NSString *schemeName = ViewyString(scheme);
+  if (schemeName.length == 0 || window->box.schemeHandlers[schemeName]) {
+    return 0;
+  }
+
+  ViewyDarwinSchemeHandler *handler = [ViewyDarwinSchemeHandler new];
+  handler.callback = callback;
+  handler.userdata = userdata;
+  @try {
+    window->box.schemeHandlers[schemeName] = handler;
+    ViewyRebuildWebView(window);
+  } @catch (NSException *exception) {
+    (void)exception;
+    [window->box.schemeHandlers removeObjectForKey:schemeName];
+    return 0;
+  }
+  return 1;
+}
+
+void viewy_darwin_scheme_finish(void *request, int32_t status,
+                                const char *status_text,
+                                const char *mime_type,
+                                const char *headers_json,
+                                const uint8_t *body, int64_t body_len) {
+  id<WKURLSchemeTask> task = (__bridge id<WKURLSchemeTask>)request;
+  if (!task) {
+    return;
+  }
+
+  NSInteger code = status >= 100 ? status : 500;
+  (void)status_text;
+
+  NSMutableDictionary<NSString *, NSString *> *headers =
+      [NSMutableDictionary dictionary];
+  NSString *mimeType = ViewyString(mime_type);
+  if (mimeType.length > 0) {
+    headers[@"Content-Type"] = mimeType;
+  }
+  id rawHeaders = ViewyJson(headers_json);
+  if ([rawHeaders isKindOfClass:[NSArray class]]) {
+    for (id raw in (NSArray *)rawHeaders) {
+      if (![raw isKindOfClass:[NSDictionary class]]) {
+        continue;
+      }
+      NSString *name = ViewyDictString(raw, @"name");
+      NSString *value = ViewyDictString(raw, @"value");
+      if (name.length > 0 && value.length > 0) {
+        headers[name] = value;
+      }
+    }
+  }
+  if (mimeType.length > 0 && !headers[@"Content-Type"]) {
+    headers[@"Content-Type"] = mimeType;
+  }
+
+  NSHTTPURLResponse *response =
+      [[NSHTTPURLResponse alloc] initWithURL:task.request.URL
+                                  statusCode:code
+                                 HTTPVersion:@"HTTP/1.1"
+                                headerFields:headers];
+  [task didReceiveResponse:response];
+  if (body && body_len > 0) {
+    NSData *data = [NSData dataWithBytes:body length:(NSUInteger)body_len];
+    [task didReceiveData:data];
+  }
+  [task didFinish];
 }
 
 int32_t viewy_darwin_set_app_menu(ViewyDarwinApp *app, const char *json_menu,

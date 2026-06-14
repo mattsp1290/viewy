@@ -18,6 +18,13 @@ typedef void (*ViewyDarwinMenuCallback)(void *userdata, const char *id);
 
 typedef void (*ViewyDarwinEventCallback)(void *userdata, int32_t kind,
                                          int32_t width, int32_t height);
+typedef void (*ViewyDarwinSchemeCallback)(void *userdata, void *request,
+                                          const char *scheme,
+                                          const char *method, const char *path,
+                                          const char *query,
+                                          const char *headers_json,
+                                          const uint8_t *body,
+                                          int64_t body_len);
 
 ViewyDarwinApp *viewy_darwin_app_create(void);
 void viewy_darwin_app_destroy(ViewyDarwinApp *app);
@@ -50,6 +57,16 @@ void viewy_darwin_resolve(ViewyDarwinWindow *window, const char *id,
 void viewy_darwin_set_event_callback(ViewyDarwinWindow *window,
                                      ViewyDarwinEventCallback callback,
                                      void *userdata);
+
+int32_t viewy_darwin_register_scheme(ViewyDarwinWindow *window,
+                                      const char *scheme,
+                                      ViewyDarwinSchemeCallback callback,
+                                      void *userdata);
+void viewy_darwin_scheme_finish(void *request, int32_t status,
+                                const char *status_text,
+                                const char *mime_type,
+                                const char *headers_json,
+                                const uint8_t *body, int64_t body_len);
 
 int32_t viewy_darwin_set_app_menu(ViewyDarwinApp *app, const char *json_menu,
                                   ViewyDarwinMenuCallback callback,
