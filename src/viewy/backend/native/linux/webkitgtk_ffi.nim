@@ -14,13 +14,13 @@ when defined(linux) and not defined(nimcheck):
 
   proc pkgConfig(package: string): tuple[ok: bool; cflags,
       libs: string] {.compileTime.} =
-    let cflags = gorge("pkg-config --cflags " & package).strip()
-    if cflags.len == 0:
+    let cflags = gorgeEx("pkg-config --cflags " & package)
+    if cflags.exitCode != 0 or cflags.output.strip.len == 0:
       return (false, "", "")
-    let libs = gorge("pkg-config --libs " & package).strip()
-    if libs.len == 0:
+    let libs = gorgeEx("pkg-config --libs " & package)
+    if libs.exitCode != 0 or libs.output.strip.len == 0:
       return (false, "", "")
-    (true, cflags, libs)
+    (true, cflags.output.strip, libs.output.strip)
 
   proc versionAtLeast(package: string; major,
       minor: int): bool {.compileTime.} =
@@ -44,6 +44,7 @@ type
   GBytes* {.importc: "GBytes", header: "glib.h", incompleteStruct.} = object
   GCancellable* {.importc: "GCancellable", header: "gio/gio.h",
       incompleteStruct.} = object
+  GConstCharPtr* {.importc: "const char *", nodecl.} = distinct cstring
   GInputStream* {.importc: "GInputStream", header: "gio/gio.h",
       incompleteStruct.} = object
   JSCContext* {.importc: "JSCContext", header: "jsc/jsc.h",
@@ -119,7 +120,7 @@ proc soupMessageHeadersAppend*(headers: ptr SoupMessageHeaders; name,
   {.importc: "soup_message_headers_append", header: "libsoup/soup.h", cdecl.}
 
 proc soupMessageHeadersForeach*(headers: ptr SoupMessageHeaders; callback: proc(
-    name, value: cstring; userData: pointer) {.cdecl, gcsafe.};
+    name, value: GConstCharPtr; userData: pointer) {.cdecl, gcsafe.};
     userData: pointer)
   {.importc: "soup_message_headers_foreach", header: "libsoup/soup.h", cdecl.}
 
@@ -153,7 +154,7 @@ proc webkitSettingsSetAllowFileAccessFromFileUrls*(settings: ptr WebKitSettings;
 
 proc webkitSettingsSetDeveloperExtrasEnabled*(settings: ptr WebKitSettings;
     enabled: GBoolean)
-  {.importc: "webkit_settings_set_developer_extras_enabled",
+  {.importc: "webkit_settings_set_enable_developer_extras",
       header: "webkit2/webkit2.h", cdecl.}
 
 proc webkitSettingsSetEnableJavascript*(settings: ptr WebKitSettings;
@@ -246,7 +247,7 @@ proc webkitUserContentManagerUnregisterScriptMessageHandler*(
 proc webkitUserScriptNew*(source: cstring;
     injectedFrames: WebKitUserContentInjectedFrames;
     injectionTime: WebKitUserScriptInjectionTime; allowList,
-    blockList: cstringArray): ptr WebKitUserScript
+    blockList: pointer): ptr WebKitUserScript
   {.importc: "webkit_user_script_new", header: "webkit2/webkit2.h", cdecl.}
 
 proc webkitUserScriptUnref*(script: ptr WebKitUserScript)

@@ -10,6 +10,7 @@ import ../../api
 import ./webkitgtk_ffi
 
 import jsony
+import zippy
 
 export api
 
@@ -403,6 +404,9 @@ proc scriptMessageCb(manager: ptr WebKitUserContentManager;
 proc cstringToString(value: cstring): string =
   if value == nil: "" else: $value
 
+proc cstringToString(value: GConstCharPtr): string =
+  cast[cstring](value).cstringToString
+
 proc uriPathAndQuery(request: ptr WebKitURISchemeRequest): tuple[path,
     query: string] =
   let requestUri = webkitUriSchemeRequestGetUri(request).cstringToString
@@ -415,7 +419,7 @@ proc uriPathAndQuery(request: ptr WebKitURISchemeRequest): tuple[path,
   if result.path.len == 0:
     result.path = "/"
 
-proc collectHeaderCb(name, value: cstring; userData: pointer) {.cdecl,
+proc collectHeaderCb(name, value: GConstCharPtr; userData: pointer) {.cdecl,
     gcsafe.} =
   let collector = cast[ptr HeaderCollector](userData)
   if collector == nil:
@@ -434,20 +438,41 @@ proc requestHeaders(request: ptr WebKitURISchemeRequest): seq[Header] =
   soupMessageHeadersForeach(headers, collectHeaderCb, addr collector)
   collector.headers
 
-proc requestBody(request: ptr WebKitURISchemeRequest): string =
+proc headerValue(headers: openArray[Header]; name: string): string =
+  for header in headers:
+    if cmpIgnoreCase(header.name, name) == 0:
+      return header.value
+
+proc hasHeader(headers: openArray[Header]; name: string): bool =
+  headers.headerValue(name).len > 0
+
+proc contentLength(headers: openArray[Header]): int =
+  let value = headers.headerValue("Content-Length")
+  if value.len == 0:
+    return 0
+  try:
+    max(0, parseInt(value))
+  except ValueError:
+    0
+
+proc requestBody(request: ptr WebKitURISchemeRequest; byteLimit: int): string =
+  if byteLimit <= 0:
+    return ""
   let stream = webkitUriSchemeRequestGetHttpBody(request)
   if stream == nil:
     return ""
 
   var error: ptr GError
   var buffer: array[4096, char]
-  while true:
-    let count = gInputStreamRead(stream, addr buffer[0], buffer.len.GSize, nil,
+  var remaining = byteLimit
+  while remaining > 0:
+    let chunk = min(buffer.len, remaining)
+    let count = gInputStreamRead(stream, addr buffer[0], chunk.GSize, nil,
         addr error)
     if count < 0:
       if error != nil:
         gErrorFree(error)
-      discard gInputStreamClose(stream, nil, nil)
+      gObjectUnref(stream)
       raise newException(LinuxBackendError,
           "webkit_uri_scheme_request_get_http_body read failed")
     if count == 0:
@@ -455,14 +480,8 @@ proc requestBody(request: ptr WebKitURISchemeRequest): string =
     let oldLen = result.len
     result.setLen(oldLen + count.int)
     copyMem(addr result[oldLen], addr buffer[0], count.int)
-  if error != nil:
-    gErrorFree(error)
-    error = nil
-  discard gInputStreamClose(stream, nil, addr error)
-  if error != nil:
-    gErrorFree(error)
-    raise newException(LinuxBackendError,
-        "webkit_uri_scheme_request_get_http_body close failed")
+    remaining.dec count.int
+  gObjectUnref(stream)
 
 proc schemeTextResponse(status: int; statusText, body: string): AssetResponse =
   AssetResponse(
@@ -473,9 +492,26 @@ proc schemeTextResponse(status: int; statusText, body: string): AssetResponse =
     body: body,
   )
 
+proc withoutHeader(headers: openArray[Header]; name: string): seq[Header] =
+  for header in headers:
+    if cmpIgnoreCase(header.name, name) != 0:
+      result.add header
+
+proc normalizeSchemeResponse(response: AssetResponse): AssetResponse =
+  result = response
+  if cmpIgnoreCase(response.headers.headerValue("Content-Encoding"),
+      "gzip") != 0:
+    return
+  try:
+    result.body = uncompress(response.body)
+    result.headers = response.headers.withoutHeader("Content-Encoding")
+  except CatchableError:
+    discard
+
 proc finishSchemeResponse(request: ptr WebKitURISchemeRequest;
     response: AssetResponse) =
-  let body = response.body
+  let normalized = response.normalizeSchemeResponse
+  let body = normalized.body
   let bodyPtr =
     if body.len == 0:
       nil
@@ -486,25 +522,29 @@ proc finishSchemeResponse(request: ptr WebKitURISchemeRequest;
   gBytesUnref(bytes)
 
   let webResponse = webkitUriSchemeResponseNew(stream, int64(body.len))
-  let status = if response.status >= 100: response.status else: 500
+  let status = if normalized.status >= 100: normalized.status else: 500
   let reason =
-    if response.statusText.len > 0:
-      response.statusText
+    if normalized.statusText.len > 0:
+      normalized.statusText
     elif status == 500:
       "Internal Server Error"
     else:
       "OK"
   webkitUriSchemeResponseSetStatus(webResponse, cuint(status), reason.cstring)
-  if response.mimeType.len > 0:
+  if normalized.mimeType.len > 0:
     webkitUriSchemeResponseSetContentType(webResponse,
-        response.mimeType.cstring)
+        normalized.mimeType.cstring)
 
   let headers = soupMessageHeadersNew(soupMessageHeadersResponse)
   if headers != nil:
-    for header in response.headers:
+    for header in normalized.headers:
       if header.name.len > 0 and header.value.len > 0:
         soupMessageHeadersAppend(headers, header.name.cstring,
             header.value.cstring)
+    if normalized.mimeType.len > 0 and not normalized.headers.hasHeader(
+        "Content-Type"):
+      soupMessageHeadersAppend(headers, "Content-Type",
+          normalized.mimeType.cstring)
     webkitUriSchemeResponseSetHttpHeaders(webResponse, headers)
 
   webkitUriSchemeRequestFinishWithResponse(request, webResponse)
@@ -528,13 +568,23 @@ proc schemeRequestCb(request: ptr WebKitURISchemeRequest;
       return
 
     let route = uriPathAndQuery(request)
+    var httpMethod = webkitUriSchemeRequestGetHttpMethod(
+        request).cstringToString
+    if httpMethod.len == 0:
+      httpMethod = "GET"
+    else:
+      httpMethod = httpMethod.toUpperAscii
+    let headers = request.requestHeaders
+    let body =
+      if httpMethod in ["GET", "HEAD"]: "" else: request.requestBody(
+          headers.contentLength)
     let assetRequest = AssetRequest(
       scheme: scheme,
-      httpMethod: webkitUriSchemeRequestGetHttpMethod(request).cstringToString,
+      httpMethod: httpMethod,
       path: route.path,
       query: route.query,
-      headers: request.requestHeaders,
-      body: request.requestBody,
+      headers: headers,
+      body: body,
     )
     let response = block:
       {.cast(gcsafe).}:

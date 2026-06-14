@@ -26,7 +26,8 @@ else:
   doAssert nativeBackend.bindFn != nil
   doAssert nativeBackend.unbind != nil
   doAssert nativeBackend.resolve != nil
-  doAssert nativeBackend.caps == {}
+  doAssert nativeBackend.caps == {capScheme}
+  doAssert nativeBackend.registerSchemeImpl != nil
 
   when defined(nimcheck):
     let handle = cast[BackendHandle](0x7)
@@ -98,6 +99,7 @@ else:
       seenArgs = ""
       lateSeen = false
       unbindChecked = false
+      doneMessage = ""
     let h = nativeBackend.create(false)
     nativeBackend.init(h, viewyRuntimeJs)
     nativeBackend.bindFn(h, "ready", proc(id, jsonArgs: string) {.gcsafe.} =
@@ -145,9 +147,25 @@ window.ready("ok").then(function(value) {
 
     let h2 = nativeBackend.create(false)
     nativeBackend.init(h2, viewyRuntimeJs)
+    nativeBackend.bindFn(h2, "fail", proc(id, jsonArgs: string) {.gcsafe.} =
+      discard jsonArgs
+      rejectValueError(h2, id)
+    )
+    nativeBackend.bindFn(h2, "voidResult", proc(id,
+        jsonArgs: string) {.gcsafe.} =
+      discard jsonArgs
+      resolveVoid(h2, id)
+    )
+    nativeBackend.bindFn(h2, "deferred", proc(id,
+        jsonArgs: string) {.gcsafe.} =
+      discard jsonArgs
+      dispatchResolveDone(h2, id)
+    )
     nativeBackend.bindFn(h2, "done", proc(id, jsonArgs: string) {.gcsafe.} =
       discard id
-      discard jsonArgs
+      if jsonArgs != "[]":
+        {.cast(gcsafe).}:
+          doneMessage = jsonArgs
       dispatchTerminate(h2)
     )
     nativeBackend.setHtml(h2, """
@@ -203,6 +221,7 @@ window.addEventListener("load", function() {
     )
     nativeBackend.run(h2)
     nativeBackend.destroy(h2)
+    doAssert doneMessage.len == 0, doneMessage
     doAssert lateSeen
     doAssert unbindChecked
 

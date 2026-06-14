@@ -10,13 +10,13 @@ when defined(linux) and not defined(nimcheck):
 
   proc pkgConfig(package: string): tuple[ok: bool; cflags,
       libs: string] {.compileTime.} =
-    let cflags = gorge("pkg-config --cflags " & package).strip()
-    if cflags.len == 0:
+    let cflags = gorgeEx("pkg-config --cflags " & package)
+    if cflags.exitCode != 0 or cflags.output.strip.len == 0:
       return (false, "", "")
-    let libs = gorge("pkg-config --libs " & package).strip()
-    if libs.len == 0:
+    let libs = gorgeEx("pkg-config --libs " & package)
+    if libs.exitCode != 0 or libs.output.strip.len == 0:
       return (false, "", "")
-    (true, cflags, libs)
+    (true, cflags.output.strip, libs.output.strip)
 
   const gtk3 = pkgConfig("gtk+-3.0")
   when not gtk3.ok:
