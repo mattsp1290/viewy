@@ -4,7 +4,7 @@
 ## environment/controller lifecycle. Menus, tray, schemes, and RPC are wired by
 ## later Windows backend slices.
 
-import std/[locks, os]
+import std/[locks, os, strutils, uri]
 
 import ../../api
 import ../../windows_webview2_pin
@@ -60,6 +60,9 @@ type
     handles: WebView2Handles
     pending: seq[PendingOperation]
     dispatches: seq[DispatchSlot]
+    schemes: seq[SchemeRegistration]
+    webResourceHandler: ptr WebResourceHandler
+    webResourceToken: EventRegistrationToken
 
   EnvHandler = object
     iface: ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler
@@ -68,6 +71,15 @@ type
 
   ControllerHandler = object
     iface: ICoreWebView2CreateCoreWebView2ControllerCompletedHandler
+    refs: Ulong
+    state: pointer
+
+  SchemeRegistration = ref object
+    scheme: string
+    handler: AssetHandler
+
+  WebResourceHandler = object
+    iface: ICoreWebView2WebResourceRequestedEventHandler
     refs: Ulong
     state: pointer
 
@@ -92,6 +104,9 @@ type
 
 const
   className = "ViewyNativeWindow"
+  virtualHostOrigin = "https://viewy.localhost"
+  virtualHostFilter = "https://viewy.localhost/*"
+  maxSchemeRequestBodyBytes = 10 * 1024 * 1024
   wmViewyDispatch = wmApp + Uint(0x101)
   wmViewyHandoff = wmApp + Uint(0x102)
   wmViewyTerminate = wmApp + Uint(0x103)
@@ -177,6 +192,93 @@ proc newPayload(shared: ptr SharedState; kind: HandoffKind; a: string; b = "";
 proc wide(value: string): WideCString =
   newWideCString(value)
 
+proc wideToString(value: Lpwstr): string =
+  if value == nil:
+    ""
+  else:
+    $value
+
+proc freeWide(value: var Lpwstr) =
+  if value != nil:
+    coTaskMemFree(cast[pointer](value))
+    value = nil
+
+proc releaseStream(stream: ptr IStream) =
+  if stream != nil and stream.lpVtbl != nil:
+    discard stream.lpVtbl.release(stream)
+
+proc releaseWebResourceResponse(response: ptr ICoreWebView2WebResourceResponse) =
+  if response != nil and response.lpVtbl != nil:
+    discard response.lpVtbl.release(response)
+
+proc releaseRequest(request: ptr ICoreWebView2WebResourceRequest) =
+  if request != nil and request.lpVtbl != nil:
+    discard request.lpVtbl.release(request)
+
+proc releaseHeaders(headers: ptr ICoreWebView2HttpRequestHeaders) =
+  if headers != nil and headers.lpVtbl != nil:
+    discard headers.lpVtbl.release(headers)
+
+proc releaseHeaderIterator(
+    headerIterator: ptr ICoreWebView2HttpHeadersCollectionIterator) =
+  if headerIterator != nil and headerIterator.lpVtbl != nil:
+    discard headerIterator.lpVtbl.release(headerIterator)
+
+proc readStream(stream: ptr IStream; byteLimit: int): string =
+  if stream == nil or stream.lpVtbl == nil or stream.lpVtbl.read == nil:
+    return ""
+  var buffer: array[4096, char]
+  var remaining = byteLimit
+  while remaining > 0:
+    let chunk = min(buffer.len, remaining)
+    var count: Ulong
+    let hr = stream.lpVtbl.read(stream, addr buffer[0], Ulong(chunk),
+        addr count)
+    if failed(hr):
+      raise newException(WindowsBackendError, "IStream.Read failed")
+    if count == 0:
+      return
+    let oldLen = result.len
+    result.setLen(oldLen + count.int)
+    copyMem(addr result[oldLen], addr buffer[0], count.int)
+    remaining.dec count.int
+  var extra: Ulong
+  let hr = stream.lpVtbl.read(stream, addr buffer[0], Ulong(1), addr extra)
+  if succeeded(hr) and extra > 0:
+    raise newException(WindowsBackendError,
+        "native Windows scheme request body exceeded maximum size")
+
+proc hasHeader(headers: openArray[Header]; name: string): bool =
+  for header in headers:
+    if cmpIgnoreCase(header.name, name) == 0:
+      return true
+
+proc reasonForStatus(status: int; statusText: string): string =
+  if statusText.len > 0:
+    statusText
+  elif status == 500:
+    "Internal Server Error"
+  elif status == 404:
+    "Not Found"
+  elif status == 400:
+    "Bad Request"
+  elif status == 206:
+    "Partial Content"
+  elif status == 416:
+    "Range Not Satisfiable"
+  else:
+    "OK"
+
+proc responseHeaders(response: AssetResponse): string =
+  var headers = response.headers
+  if response.mimeType.len > 0 and not headers.hasHeader("Content-Type"):
+    headers.add Header((name: "Content-Type", value: response.mimeType))
+  if not headers.hasHeader("Content-Length"):
+    headers.add Header((name: "Content-Length", value: $response.body.len))
+  for header in headers:
+    if header.name.len > 0 and header.value.len > 0:
+      result.add header.name & ": " & header.value & "\r\n"
+
 proc clientBounds(hwnd: Hwnd): Rect =
   if getClientRect(hwnd, addr result) == winFalse:
     result = Rect(left: 0, top: 0, right: 800, bottom: 600)
@@ -222,6 +324,18 @@ proc flushPending(state: WindowsState) =
     state.applyOperation(operation)
   state.pending.setLen(0)
 
+proc findScheme(state: WindowsState; scheme: string): SchemeRegistration =
+  for registration in state.schemes:
+    if registration.scheme == scheme:
+      return registration
+
+proc hasScheme(state: WindowsState; scheme: string): bool =
+  state.findScheme(scheme) != nil
+
+proc releaseWebResourceHandler(state: WindowsState)
+
+proc ensureWebResourceHandler(state: WindowsState)
+
 proc closeFromUiThread(state: WindowsState) =
   let shared = state.shared
   acquire(shared.lock)
@@ -233,8 +347,10 @@ proc closeFromUiThread(state: WindowsState) =
   shared.hwnd = nil
   release(shared.lock)
 
+  state.releaseWebResourceHandler()
   state.handles.releaseHandles()
   state.pending.setLen(0)
+  state.schemes.setLen(0)
   if hwnd != nil:
     discard destroyWindow(hwnd)
 
@@ -306,6 +422,234 @@ proc releaseControllerHandler(
     if state != nil:
       GC_unref(state)
     deallocShared(handler)
+
+proc queryWebResource(
+    self: ptr ICoreWebView2WebResourceRequestedEventHandler;
+    riid: Refiid; ppvObject: ptr pointer): Hresult {.stdcall.} =
+  if ppvObject == nil:
+    return eInvalidArg
+  if sameIid(riid, addr iidIUnknown) or
+      sameIid(riid, addr iidICoreWebView2WebResourceRequestedEventHandler):
+    ppvObject[] = cast[pointer](self)
+    discard cast[ptr WebResourceHandler](self).iface.lpVtbl.addRef(self)
+    return sOk
+  ppvObject[] = nil
+  eNoInterfaceLocal
+
+proc addRefWebResource(self: ptr ICoreWebView2WebResourceRequestedEventHandler
+): Ulong {.stdcall.} =
+  let handler = cast[ptr WebResourceHandler](self)
+  inc handler.refs
+  handler.refs
+
+proc releaseWebResource(self: ptr ICoreWebView2WebResourceRequestedEventHandler
+): Ulong {.stdcall.} =
+  let handler = cast[ptr WebResourceHandler](self)
+  let state = cast[WindowsState](handler.state)
+  if handler.refs > 0:
+    dec handler.refs
+  result = handler.refs
+  if result == 0:
+    if state != nil:
+      GC_unref(state)
+    deallocShared(handler)
+
+proc requestHeaders(request: ptr ICoreWebView2WebResourceRequest): seq[Header] =
+  if request == nil or request.lpVtbl == nil:
+    return @[]
+  var headers: ptr ICoreWebView2HttpRequestHeaders
+  if failed(request.lpVtbl.getHeaders(request, addr headers)) or
+      headers == nil or headers.lpVtbl == nil:
+    return @[]
+  defer:
+    releaseHeaders(headers)
+
+  var headerIterator: ptr ICoreWebView2HttpHeadersCollectionIterator
+  if failed(headers.lpVtbl.getIterator(headers, addr headerIterator)) or
+      headerIterator == nil or headerIterator.lpVtbl == nil:
+    return @[]
+  defer:
+    releaseHeaderIterator(headerIterator)
+
+  var hasCurrent = winFalse
+  while succeeded(headerIterator.lpVtbl.getHasCurrentHeader(headerIterator,
+      addr hasCurrent)) and hasCurrent != winFalse:
+    var
+      name: Lpwstr
+      value: Lpwstr
+    if succeeded(headerIterator.lpVtbl.getCurrentHeader(headerIterator, addr name,
+        addr value)):
+      result.add Header((name: name.wideToString, value: value.wideToString))
+    freeWide(name)
+    freeWide(value)
+    var hasNext = winFalse
+    if failed(headerIterator.lpVtbl.moveNext(headerIterator, addr hasNext)) or
+        hasNext == winFalse:
+      break
+
+proc requestUri(request: ptr ICoreWebView2WebResourceRequest): string =
+  var uri: Lpwstr
+  if request != nil and request.lpVtbl != nil and
+      succeeded(request.lpVtbl.getUri(request, addr uri)):
+    result = uri.wideToString
+  freeWide(uri)
+
+proc requestMethod(request: ptr ICoreWebView2WebResourceRequest): string =
+  var methodName: Lpwstr
+  if request != nil and request.lpVtbl != nil and
+      succeeded(request.lpVtbl.getMethod(request, addr methodName)):
+    result = methodName.wideToString.toUpperAscii
+  freeWide(methodName)
+  if result.len == 0:
+    result = "GET"
+
+proc requestBody(request: ptr ICoreWebView2WebResourceRequest;
+    httpMethod: string): string =
+  if httpMethod in ["GET", "HEAD"] or request == nil or request.lpVtbl == nil:
+    return ""
+  var stream: ptr IStream
+  if failed(request.lpVtbl.getContent(request, addr stream)) or stream == nil:
+    return ""
+  try:
+    result = stream.readStream(maxSchemeRequestBodyBytes)
+  finally:
+    releaseStream(stream)
+
+proc schemeTextResponse(status: int; statusText, body: string): AssetResponse =
+  AssetResponse(
+    status: status,
+    statusText: statusText,
+    mimeType: "text/plain; charset=utf-8",
+    headers: @[(name: "Cache-Control", value: "no-store")],
+    body: body,
+  )
+
+proc makeStream(body: string): ptr IStream =
+  let bodyPtr =
+    if body.len == 0:
+      nil
+    else:
+      cast[pointer](unsafeAddr body[0])
+  cast[ptr IStream](shCreateMemStream(bodyPtr, Uint(body.len)))
+
+proc applyWebResourceResponse(state: WindowsState;
+    args: ptr ICoreWebView2WebResourceRequestedEventArgs;
+    response: AssetResponse) =
+  if state.handles.environment == nil or state.handles.environment.lpVtbl == nil or
+      args == nil or args.lpVtbl == nil:
+    return
+  let status = if response.status >= 100: response.status else: 500
+  let reason = reasonForStatus(status, response.statusText)
+  let stream = response.body.makeStream()
+  var webResponse: ptr ICoreWebView2WebResourceResponse
+  let hr = createWebResourceResponse(state.handles.environment, stream,
+      Int(status), wide(reason), wide(response.responseHeaders), addr webResponse)
+  releaseStream(stream)
+  if failed(hr) or webResponse == nil:
+    return
+  discard args.lpVtbl.putResponse(args, webResponse)
+  releaseWebResourceResponse(webResponse)
+
+proc webResourceRequested(
+    self: ptr ICoreWebView2WebResourceRequestedEventHandler;
+    sender: ptr ICoreWebView2; args: ptr ICoreWebView2WebResourceRequestedEventArgs
+): Hresult {.stdcall.} =
+  discard sender
+  let state = cast[WindowsState](cast[ptr WebResourceHandler](self).state)
+  if state == nil or state.shared.closed:
+    return sOk
+  try:
+    var request: ptr ICoreWebView2WebResourceRequest
+    if args == nil or args.lpVtbl == nil or failed(args.lpVtbl.getRequest(args,
+        addr request)) or request == nil:
+      state.applyWebResourceResponse(args, schemeTextResponse(400,
+          "Bad Request", "bad request"))
+      return sOk
+    defer:
+      releaseRequest(request)
+
+    let parsed = parseUri(request.requestUri)
+    let schemeName =
+      if parsed.scheme == "https" and parsed.hostname == "viewy.localhost":
+        "viewy"
+      else:
+        parsed.scheme
+    let registration = state.findScheme(schemeName)
+    if registration == nil:
+      state.applyWebResourceResponse(args, schemeTextResponse(404, "Not Found",
+          "not found"))
+      return sOk
+
+    let path = if parsed.path.len == 0: "/" else: parsed.path
+    let httpMethod = request.requestMethod
+    let assetRequest = AssetRequest(
+      scheme: registration.scheme,
+      httpMethod: httpMethod,
+      path: path,
+      query: parsed.query,
+      headers: request.requestHeaders,
+      body: request.requestBody(httpMethod),
+    )
+    let response = registration.handler(assetRequest)
+    state.applyWebResourceResponse(args, response)
+  except CatchableError:
+    state.applyWebResourceResponse(args, schemeTextResponse(500,
+        "Internal Server Error", "internal server error"))
+  sOk
+
+var webResourceVtbl = CoreWebView2WebResourceRequestedEventHandlerVtbl(
+  queryInterface: queryWebResource,
+  addRef: addRefWebResource,
+  release: releaseWebResource,
+  invoke: webResourceRequested,
+)
+
+proc newWebResourceHandler(state: WindowsState): ptr WebResourceHandler =
+  result = cast[ptr WebResourceHandler](allocShared0(sizeof(WebResourceHandler)))
+  if result == nil:
+    raise newException(WindowsBackendError,
+        "native Windows WebResourceRequested callback allocation failed")
+  result.iface.lpVtbl = addr webResourceVtbl
+  result.refs = 1
+  result.state = cast[pointer](state)
+  GC_ref(state)
+
+proc ensureWebResourceHandler(state: WindowsState) =
+  if state.webResourceHandler != nil or not state.webviewReady:
+    return
+  if state.handles.webview == nil or state.handles.webview.lpVtbl == nil:
+    return
+  let handler = state.newWebResourceHandler()
+  var token: EventRegistrationToken
+  var hr = state.handles.webview.lpVtbl.addWebResourceRequested(
+      state.handles.webview, addr handler.iface, addr token)
+  if failed(hr):
+    discard handler.iface.lpVtbl.release(addr handler.iface)
+    raise newException(WindowsBackendError,
+        "ICoreWebView2.add_WebResourceRequested failed")
+  hr = state.handles.webview.lpVtbl.addWebResourceRequestedFilter(
+      state.handles.webview, wide(virtualHostFilter), wrcAll)
+  if failed(hr):
+    discard state.handles.webview.lpVtbl.removeWebResourceRequested(
+        state.handles.webview, token)
+    discard handler.iface.lpVtbl.release(addr handler.iface)
+    raise newException(WindowsBackendError,
+        "ICoreWebView2.add_WebResourceRequestedFilter failed")
+  state.webResourceHandler = handler
+  state.webResourceToken = token
+
+proc releaseWebResourceHandler(state: WindowsState) =
+  if state.webResourceHandler == nil:
+    return
+  if state.handles.webview != nil and state.handles.webview.lpVtbl != nil:
+    discard state.handles.webview.lpVtbl.removeWebResourceRequested(
+        state.handles.webview, state.webResourceToken)
+    discard state.handles.webview.lpVtbl.removeWebResourceRequestedFilter(
+        state.handles.webview, wide(virtualHostFilter), wrcAll)
+  discard state.webResourceHandler.iface.lpVtbl.release(
+      addr state.webResourceHandler.iface)
+  state.webResourceHandler = nil
+  state.webResourceToken = EventRegistrationToken()
 
 proc invokeController(
     self: ptr ICoreWebView2CreateCoreWebView2ControllerCompletedHandler;
@@ -398,6 +742,8 @@ proc invokeController(
     state.environmentReady = false
     return sOk
   state.webviewReady = true
+  if state.schemes.len > 0:
+    state.ensureWebResourceHandler()
   state.resizeWebview()
   state.flushPending()
   sOk
@@ -652,7 +998,14 @@ proc setSize(h: BackendHandle; width, height: int; hints: WindowHints) =
   state.resizeWebview()
 
 proc navigate(h: BackendHandle; url: string) =
-  h.toState.queueOrApply(pkNavigate, url)
+  let target =
+    if url.startsWith("viewy://app/"):
+      virtualHostOrigin & "/" & url["viewy://app/".len .. ^1]
+    elif url == "viewy://app":
+      virtualHostOrigin & "/"
+    else:
+      url
+  h.toState.queueOrApply(pkNavigate, target)
 
 proc setHtml(h: BackendHandle; html: string) =
   h.toState.queueOrApply(pkSetHtml, html)
@@ -685,6 +1038,25 @@ proc resolve(h: BackendHandle; id: string; ok: bool; jsonResult: string) =
   discard jsonResult
   raise unsupported("native Windows resolve")
 
+proc registerScheme(h: BackendHandle; scheme: string; handler: AssetHandler) =
+  let state = h.toState
+  state.assertUiThread
+  state.requireOpen("native Windows scheme registration")
+  if scheme.len == 0:
+    raise newException(WindowsBackendError,
+        "native Windows scheme registration failed: empty scheme")
+  if scheme != "viewy":
+    raise newException(WindowsBackendError,
+        "native Windows scheme registration failed: only viewy is supported")
+  if handler.isNil:
+    raise newException(WindowsBackendError,
+        "native Windows scheme registration failed: nil handler")
+  if state.hasScheme(scheme):
+    raise newException(WindowsBackendError,
+        "native Windows scheme registration failed: duplicate scheme " & scheme)
+  state.schemes.add SchemeRegistration(scheme: scheme, handler: handler)
+  state.ensureWebResourceHandler()
+
 proc newBackend*(): Backend =
   Backend(
     create: create,
@@ -704,5 +1076,6 @@ proc newBackend*(): Backend =
     bindFn: bindFn,
     unbind: unbind,
     resolve: resolve,
-    caps: {},
+    caps: {capScheme},
+    registerSchemeImpl: registerScheme,
   )

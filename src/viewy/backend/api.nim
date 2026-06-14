@@ -228,6 +228,8 @@ when selectedBackend == "native":
         capWindowEvents}
   elif defined(linux):
     const selectedBackendCaps*: set[Capability] = {capScheme}
+  elif defined(windows):
+    const selectedBackendCaps*: set[Capability] = {capScheme}
   else:
     const selectedBackendCaps*: set[Capability] = {}
 elif selectedBackend == "lite":
