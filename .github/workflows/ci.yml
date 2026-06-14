@@ -122,6 +122,13 @@ jobs:
         if: runner.os == 'Windows'
         run: nim check --hints:off --mm:orc --threads:on -d:nimcheck --path:src tests/native/test_windows_win32.nim
 
+      - name: Check native Windows backend lifecycle
+        if: runner.os == 'Windows'
+        run: |
+          python -c "import os; os.makedirs('build', exist_ok=True)"
+          nim check --hints:off --mm:orc --threads:on -d:nimcheck --path:src tests/native/test_windows_backend.nim
+          nim c --hints:off --mm:orc --threads:on -d:viewyBackend=native --path:src -o:build/test_windows_backend tests/native/test_windows_backend.nim
+
       - name: Check native Linux GTK FFI
         if: runner.os == 'Linux'
         run: nim c --hints:off --mm:orc --threads:on -r tests/native/test_linux_gtk_ffi.nim

@@ -21,7 +21,7 @@ doAssert backend.caps == {}
     checkpoint output
     check exitCode == 0
 
-  test "native selection exports platform backend on Linux and macOS":
+  test "native selection exports platform backend on Linux, macOS, and Windows":
     let (output, exitCode) = nimCheck("""
 import viewy/backend/select
 let backend = newBackend()
@@ -31,7 +31,7 @@ doAssert backend.run != nil
 doAssert backend.terminate != nil
 doAssert backend.dispatchTerminate != nil
 """)
-    when defined(linux) or defined(macosx):
+    when defined(linux) or defined(macosx) or defined(windows):
       checkpoint output
       check exitCode == 0
     else:
@@ -63,6 +63,18 @@ import viewy/backend/api
 static:
   doAssert selectedBackendCaps == {}
 """, "--os:windows -d:viewyBackend=native")
+      checkpoint output
+      check exitCode == 0
+
+    block:
+      let (output, exitCode) = nimCheck("""
+import viewy/backend/select
+let backend = newBackend()
+doAssert backend.create != nil
+doAssert backend.run != nil
+doAssert backend.dispatchTerminate != nil
+doAssert backend.caps == {}
+""", "--os:windows -d:nimcheck -d:viewyBackend=native")
       checkpoint output
       check exitCode == 0
 

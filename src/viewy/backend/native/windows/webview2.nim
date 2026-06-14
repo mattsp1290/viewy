@@ -47,6 +47,8 @@ proc createWebResourceResponse*(environment: ptr ICoreWebView2Environment;
 
 proc releaseController(controller: ptr ICoreWebView2Controller) =
   if controller != nil and controller.lpVtbl != nil:
+    if controller.lpVtbl.close != nil:
+      discard controller.lpVtbl.close(controller)
     discard controller.lpVtbl.release(controller)
 
 proc releaseWebView(webview: ptr ICoreWebView2) =
@@ -56,6 +58,10 @@ proc releaseWebView(webview: ptr ICoreWebView2) =
 proc releaseSettings(settings: ptr ICoreWebView2Settings) =
   if settings != nil and settings.lpVtbl != nil:
     discard settings.lpVtbl.release(settings)
+
+proc releaseEnvironment(environment: ptr ICoreWebView2Environment) =
+  if environment != nil and environment.lpVtbl != nil:
+    discard environment.lpVtbl.release(environment)
 
 proc attachController*(controller: ptr ICoreWebView2Controller;
     parentWindow: Hwnd; bounds: Rect; handles: var WebView2Handles): Hresult =
@@ -105,6 +111,7 @@ proc releaseHandles*(handles: var WebView2Handles) =
   releaseSettings(handles.settings)
   releaseWebView(handles.webview)
   releaseController(handles.controller)
+  releaseEnvironment(handles.environment)
   handles = WebView2Handles()
 
 proc configureSettings*(settings: ptr ICoreWebView2Settings;

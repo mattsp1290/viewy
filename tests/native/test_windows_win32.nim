@@ -20,6 +20,7 @@ else:
   doAssert wmDpiChanged == 0x02E0'u32
   doAssert wmGetDpiScaledSize == 0x02E4'u32
   doAssert wmApp == 0x8000'u32
+  doAssert swpNoMove == 0x0002'u32
   doAssert (wsOverlappedWindow and wsCaption) == wsCaption
   doAssert wsExControlParent == 0x00010000'u32
   doAssert (fvVirtKey or fControl or fShift) == Byte(0x0D)
@@ -49,6 +50,7 @@ else:
     discard updateWindow(hwnd)
     discard setWindowTextW(hwnd, newWideCString("Updated"))
     discard moveWindow(hwnd, 0, 0, 800, 600, winTrue)
+    discard setWindowPos(hwnd, nil, 0, 0, 800, 600, swpNoMove or swpNoZOrder)
     discard getClientRect(hwnd, addr rect)
     discard adjustWindowRectEx(addr rect, wsOverlappedWindow, winFalse, 0)
     discard adjustWindowRectExForDpi(addr rect, wsOverlappedWindow, winFalse, 0,

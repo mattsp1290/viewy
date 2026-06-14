@@ -6,6 +6,7 @@ else:
 
   doAssert sOk == 0
   doAssert eNoInterface == Hresult(-2147467262)
+  doAssert iidIUnknown.data4[0] == 0xc0'u8
   doAssert sizeof(WebResourceContext) == sizeof(cint)
   doAssert sizeof(MoveFocusReason) == sizeof(cint)
   doAssert sizeof(EventRegistrationToken) == 8
