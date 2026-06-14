@@ -106,7 +106,10 @@ suite "viewy build":
       let output = buildApp(cfg, release = true, projectDir = dir,
           exec = fakeExec)
 
-      check calls.len == 2
+      when defined(macosx):
+        check calls.len == 3
+      else:
+        check calls.len == 2
       check calls[0] == ("npm run build", dir / "frontend")
       check calls[1].command.startsWith("nim c ")
       check calls[1].command.contains("-d:viewyBackend=lite")
@@ -118,6 +121,17 @@ suite "viewy build":
       check fileExists(dir / "src" / "viewy_assets.nim")
       check output.contains("Built binary:")
       check output.contains("6 bytes")
+      when defined(macosx):
+        let
+          appBundle = dir / "build" / "demo.app"
+          plist = readFile(appBundle / "Contents" / "Info.plist")
+        check fileExists(appBundle / "Contents" / "MacOS" / "demo")
+        check plist.contains("<key>NSHighResolutionCapable</key>")
+        check plist.contains("<true/>")
+        check calls[2].command == "codesign --force --deep -s - " &
+          quoteShell(appBundle)
+        check calls[2].workingDir == dir / "build"
+        check output.contains("Built app bundle: " & appBundle)
     finally:
       removeDir(dir)
 
