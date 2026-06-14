@@ -23,6 +23,14 @@ Runs headlessly everywhere and does not create a backend window.
 - `test_scheme_routing.nim`
 - `tviewy.nim`
 
+### Native Compile Smokes
+
+Compile-only platform FFI/glue checks. They skip or are CI-gated off-platform.
+
+- `native/test_darwin_glue.nim`
+- `native/test_linux_gtk_ffi.nim`
+- `native/test_linux_webkitgtk_ffi.nim`
+
 ## Tier 2: Real Backend Smoke
 
 Runs against a real `newBackend()` and a real display. These tests are gated by
