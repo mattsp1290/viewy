@@ -4,6 +4,7 @@ import viewy/backend/native/windows/[com, webview2, win32]
 
 var
   controllerAddRefs: int
+  controllerCloses: int
   controllerReleases: int
   webviewReleases: int
   settingsReleases: int
@@ -20,6 +21,11 @@ proc okControllerRelease(self: ptr ICoreWebView2Controller): Ulong {.stdcall.} =
   discard self
   inc controllerReleases
   Ulong(1)
+
+proc okControllerClose(self: ptr ICoreWebView2Controller): Hresult {.stdcall.} =
+  discard self
+  inc controllerCloses
+  sOk
 
 proc okWebViewRelease(self: ptr ICoreWebView2): Ulong {.stdcall.} =
   discard self
@@ -133,6 +139,7 @@ proc okPutErrorPage(self: ptr ICoreWebView2Settings;
 
 proc resetFakes() =
   controllerAddRefs = 0
+  controllerCloses = 0
   controllerReleases = 0
   webviewReleases = 0
   settingsReleases = 0
@@ -153,6 +160,7 @@ suite "windows webview2 wiring declarations":
       controllerVtbl = CoreWebView2ControllerVtbl(
         addRef: okControllerAddRef,
         release: okControllerRelease,
+        close: okControllerClose,
         putParentWindow: okPutParentWindow,
         putBounds: okPutBounds,
         getCoreWebView2: okGetCoreWebView2)
@@ -177,6 +185,7 @@ suite "windows webview2 wiring declarations":
     check handles.controller == nil
     check handles.webview == nil
     check handles.settings == nil
+    check controllerCloses == 1
     check controllerReleases == 1
     check webviewReleases == 1
     check settingsReleases == 1

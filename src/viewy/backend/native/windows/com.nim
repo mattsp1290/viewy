@@ -389,6 +389,9 @@ type
 const
   sOk* = Hresult(0)
   eNoInterface* = Hresult(-2147467262)
+  iidIUnknown* = Iid(
+    data1: 0x00000000'u32, data2: 0x0000'u16, data3: 0x0000'u16,
+    data4: [0xc0'u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46])
   iidICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler* = Iid(
     data1: 0x4e8a3389'u32, data2: 0xc9d8'u16, data3: 0x4bd2'u16,
     data4: [0xb6'u8, 0xb5, 0x12, 0x4f, 0xee, 0x6c, 0xc1, 0x4d])

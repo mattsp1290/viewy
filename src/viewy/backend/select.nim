@@ -14,6 +14,9 @@ elif selectedBackend == "native":
   elif defined(macosx):
     import viewy/backend/native/darwin/backend
     export backend.newBackend
+  elif defined(windows):
+    import viewy/backend/native/windows/backend
+    export backend.newBackend
   else:
     template newBackend*(): Backend =
       {.error: "viewyBackend=native currently requires Linux or macOS".}

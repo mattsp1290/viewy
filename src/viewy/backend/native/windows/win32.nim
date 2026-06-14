@@ -245,6 +245,9 @@ const
   wmNcCreate* = Uint(0x0081)
   wmApp* = Uint(0x8000)
 
+  swpNoMove* = Uint(0x0002)
+  swpNoZOrder* = Uint(0x0004)
+
 proc dpiAwarenessContextPerMonitorAwareV2*(): DpiAwarenessContext =
   cast[DpiAwarenessContext](-4)
 
@@ -320,6 +323,10 @@ proc moveWindow*(hWnd: Hwnd; x, y, nWidth, nHeight: Int;
     bRepaint: Bool): Bool
   {.importc: "MoveWindow", header: "windows.h", stdcall.}
 
+proc setWindowPos*(hWnd: Hwnd; hWndInsertAfter: Hwnd; x, y, cx, cy: Int;
+    uFlags: Uint): Bool
+  {.importc: "SetWindowPos", header: "windows.h", stdcall.}
+
 proc getClientRect*(hWnd: Hwnd; lpRect: ptr Rect): Bool
   {.importc: "GetClientRect", header: "windows.h", stdcall.}
 
@@ -339,6 +346,12 @@ proc enableNonClientDpiScaling*(hWnd: Hwnd): Bool
 
 proc setProcessDpiAwarenessContext*(value: DpiAwarenessContext): Bool
   {.importc: "SetProcessDpiAwarenessContext", header: "windows.h", stdcall.}
+
+proc coInitializeEx*(pvReserved: pointer; dwCoInit: Dword): Long
+  {.importc: "CoInitializeEx", header: "objbase.h", stdcall.}
+
+proc coUninitialize*()
+  {.importc: "CoUninitialize", header: "objbase.h", stdcall.}
 
 proc createAcceleratorTableW*(lpaccl: ptr Accel; cEntries: Int): Haccel
   {.importc: "CreateAcceleratorTableW", header: "windows.h", stdcall.}
