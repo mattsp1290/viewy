@@ -576,9 +576,10 @@ proc unbind(h: BackendHandle; name: string) =
   let state = h.toState
   state.assertUiThread
   state.removeBinding(name)
-  viewyDarwinWindowEval(state.shared.window,
-      jsCall("if(window.__viewy&&window.__viewy._b)delete window.__viewy._b[" &
-      name.toJson() & "];delete window[" & name.toJson() & "];").cstring)
+  let script = jsCall("if(window.__viewy&&window.__viewy._b)delete window.__viewy._b[" &
+      name.toJson() & "];delete window[" & name.toJson() & "];")
+  viewyDarwinWindowInitScript(state.shared.window, script.cstring)
+  viewyDarwinWindowEval(state.shared.window, script.cstring)
 
 proc registerScheme(h: BackendHandle; scheme: string; handler: AssetHandler) =
   let state = h.toState
