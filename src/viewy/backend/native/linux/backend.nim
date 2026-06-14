@@ -1,12 +1,13 @@
 ## Native Linux backend backed by GTK3 and WebKitGTK 4.1.
 ##
 ## This module owns the core window/webview lifecycle and JavaScript binding
-## bridge. Higher-level native features such as custom schemes, menus, and tray
-## integration are implemented by later backend slices.
+## bridge. Higher-level native features such as custom schemes and tray
+## integration build on the same GTK main-thread ownership.
 
 import std/[locks, strutils, uri]
 
 import ../../api
+import ./appindicator
 import ./webkitgtk_ffi
 
 import jsony
@@ -39,10 +40,26 @@ type
     name: string
     cb: BindCallback
 
+  MenuCommand = ref object
+    id: string
+    cb: MenuCallback
+
+  TrayRegistration = ref object
+    id: string
+    tooltip: string
+    iconPath: string
+    templateIconPath: string
+    menu: seq[MenuItem]
+    cb: MenuCallback
+    indicator: ptr AppIndicator
+    menuWidget: ptr GtkWidget
+    commands: seq[MenuCommand]
+
   LinuxState = ref object
     shared: ptr SharedState
     bindings: seq[Binding]
     schemes: seq[SchemeRegistration]
+    trays: seq[TrayRegistration]
     dispatches: seq[DispatchSlot]
     handlerConnected: bool
     handlerRegistered: bool
@@ -93,6 +110,11 @@ proc toState(h: BackendHandle): LinuxState =
     if state.shared == shared:
       return state
   raise newException(LinuxBackendError, "viewy backend handle is not live")
+
+proc findState(shared: ptr SharedState): LinuxState =
+  for state in liveStates:
+    if state.shared == shared:
+      return state
 
 proc toHandle(state: LinuxState): BackendHandle =
   cast[BackendHandle](state.shared)
@@ -218,6 +240,17 @@ proc findScheme(state: LinuxState; scheme: string): SchemeRegistration =
     if registration.scheme == scheme:
       return registration
 
+proc findTray(state: LinuxState; id: string): TrayRegistration =
+  for tray in state.trays:
+    if tray.id == id:
+      return tray
+
+proc removeTray(state: LinuxState; id: string) =
+  for i in 0 ..< state.trays.len:
+    if state.trays[i].id == id:
+      state.trays.delete i
+      return
+
 proc findLiveScheme(scheme: string): SchemeRegistration =
   if liveStates.len == 0:
     return nil
@@ -235,6 +268,23 @@ proc isLiveSchemeRegistered(scheme: string): bool =
   for state in liveStates:
     if state.findScheme(scheme) != nil:
       return true
+
+proc releaseMenuWidget(menu: ptr GtkWidget) =
+  if menu != nil:
+    gtkWidgetDestroy(menu)
+    gObjectUnref(cast[pointer](menu))
+
+proc releaseTrayResources(tray: TrayRegistration) =
+  if tray.indicator != nil:
+    let api = loadAppIndicator()
+    if api != nil:
+      api.setStatus(tray.indicator, false)
+    gObjectUnref(cast[pointer](tray.indicator))
+    tray.indicator = nil
+  if tray.menuWidget != nil:
+    releaseMenuWidget(tray.menuWidget)
+    tray.menuWidget = nil
+  tray.commands.setLen(0)
 
 proc closeFromUiThread(state: LinuxState) =
   let shared = state.shared
@@ -261,6 +311,9 @@ proc closeFromUiThread(state: LinuxState) =
     webkitUserContentManagerUnregisterScriptMessageHandler(manager,
         nativeHandlerName)
     state.handlerRegistered = false
+  for tray in state.trays:
+    tray.releaseTrayResources()
+  state.trays.setLen(0)
   if window != nil:
     gtkWidgetDestroy(window)
   if manager != nil:
@@ -308,24 +361,28 @@ proc terminateCb(data: pointer): GBoolean {.cdecl, gcsafe.} =
   deallocShared(payload)
 
   {.cast(gcsafe).}:
-    var window: ptr GtkWidget
-    var manager: ptr WebKitUserContentManager
-    acquire(shared.lock)
-    if not shared.closed:
-      shared.closed = true
-      window = shared.window
-      manager = shared.manager
-      shared.window = nil
-      shared.box = nil
-      shared.webviewWidget = nil
-      shared.webview = nil
-      shared.manager = nil
-    release(shared.lock)
+    let state = findState(shared)
+    if state != nil:
+      state.closeFromUiThread()
+    else:
+      var window: ptr GtkWidget
+      var manager: ptr WebKitUserContentManager
+      acquire(shared.lock)
+      if not shared.closed:
+        shared.closed = true
+        window = shared.window
+        manager = shared.manager
+        shared.window = nil
+        shared.box = nil
+        shared.webviewWidget = nil
+        shared.webview = nil
+        shared.manager = nil
+      release(shared.lock)
 
-    if window != nil:
-      gtkWidgetDestroy(window)
-    if manager != nil:
-      gObjectUnref(manager)
+      if window != nil:
+        gtkWidgetDestroy(window)
+      if manager != nil:
+        gObjectUnref(manager)
   gtkMainQuit()
   gFalse
 
@@ -662,6 +719,7 @@ proc create(debug: bool): BackendHandle =
     shared: shared,
     bindings: @[],
     schemes: @[],
+    trays: @[],
     dispatches: @[],
   )
   rootState state
@@ -692,7 +750,8 @@ proc terminate(h: BackendHandle) {.gcsafe.} =
     {.cast(gcsafe).}:
       h.toState
   state.assertUiThread
-  state.closeFromUiThread()
+  {.cast(gcsafe).}:
+    state.closeFromUiThread()
   gtkMainQuit()
 
 proc dispatch(h: BackendHandle; fn: DispatchProc) {.gcsafe.} =
@@ -893,8 +952,204 @@ proc registerScheme(h: BackendHandle; scheme: string; handler: AssetHandler) =
         nil, nil)
     registeredSchemes.add scheme
 
+proc menuCommandCb(menuItem: ptr GtkMenuItem; data: pointer) {.cdecl, gcsafe.} =
+  discard menuItem
+  let command = cast[MenuCommand](data)
+  if command == nil or command.cb.isNil:
+    return
+  command.cb(command.id)
+
+proc menuLabel(item: MenuItem): string =
+  if item.label.len > 0:
+    item.label
+  else:
+    item.id
+
+proc appendMenuItems(tray: TrayRegistration; menu: ptr GtkWidget;
+    items: openArray[MenuItem])
+
+proc appendMenuItem(tray: TrayRegistration; menu: ptr GtkWidget;
+    item: MenuItem; radioGroup: var ptr GSList) =
+  var widget: ptr GtkWidget
+  case item.kind
+  of miSeparator:
+    widget = gtkSeparatorMenuItemNew()
+  of miSubmenu:
+    widget = gtkMenuItemNewWithLabel(item.menuLabel.cstring)
+    if widget == nil:
+      raise newException(LinuxBackendError,
+          "native Linux tray menu item create failed")
+    let submenu = gtkMenuNew()
+    if submenu == nil:
+      gtkWidgetDestroy(widget)
+      raise newException(LinuxBackendError,
+          "native Linux tray menu create failed")
+    var attached = false
+    try:
+      tray.appendMenuItems(submenu, item.children)
+      gtkMenuItemSetSubmenu(cast[ptr GtkMenuItem](widget), submenu)
+      attached = true
+    except CatchableError:
+      if not attached:
+        gtkWidgetDestroy(submenu)
+      gtkWidgetDestroy(widget)
+      raise
+  of miCommand:
+    widget = gtkMenuItemNewWithLabel(item.menuLabel.cstring)
+  of miCheckbox:
+    widget = gtkCheckMenuItemNewWithLabel(item.menuLabel.cstring)
+    gtkCheckMenuItemSetActive(cast[ptr GtkCheckMenuItem](widget),
+        item.checked.toBool)
+  of miRadio:
+    widget = gtkRadioMenuItemNewWithLabel(radioGroup, item.menuLabel.cstring)
+    gtkCheckMenuItemSetActive(cast[ptr GtkCheckMenuItem](widget),
+        item.checked.toBool)
+    radioGroup = gtkRadioMenuItemGetGroup(cast[ptr GtkRadioMenuItem](widget))
+
+  if widget == nil:
+    raise newException(LinuxBackendError,
+        "native Linux tray menu item create failed")
+  gtkWidgetSetSensitive(widget, item.enabled.toBool)
+  gtkMenuShellAppend(menu, widget)
+
+  if item.kind in {miCommand, miCheckbox, miRadio}:
+    let command = MenuCommand(id: item.id, cb: tray.cb)
+    tray.commands.add command
+    discard gSignalConnectData(widget, "activate", cast[pointer](
+        menuCommandCb), cast[pointer](command), nil, gConnectDefault)
+
+proc appendMenuItems(tray: TrayRegistration; menu: ptr GtkWidget;
+    items: openArray[MenuItem]) =
+  var radioGroup: ptr GSList
+  for item in items:
+    tray.appendMenuItem(menu, item, radioGroup)
+
+proc buildTrayMenu(tray: TrayRegistration;
+    items: openArray[MenuItem]): ptr GtkWidget =
+  result = gtkMenuNew()
+  if result == nil:
+    raise newException(LinuxBackendError,
+        "native Linux tray menu create failed")
+  discard gObjectRefSink(cast[pointer](result))
+  try:
+    tray.appendMenuItems(result, items)
+    gtkWidgetShowAll(result)
+  except CatchableError:
+    releaseMenuWidget(result)
+    result = nil
+    tray.commands.setLen(0)
+    raise
+
+proc trayCreate(h: BackendHandle; options: TrayOptions; cb: MenuCallback) =
+  let state = h.toState
+  state.assertUiThread
+  state.requireOpen("native Linux tray create")
+  if options.id.len == 0:
+    raise newException(LinuxBackendError,
+        "native Linux tray create failed: empty tray id")
+  if cb.isNil:
+    raise newException(LinuxBackendError,
+        "native Linux tray create failed: nil callback")
+  if state.findTray(options.id) != nil:
+    raise newException(LinuxBackendError,
+        "native Linux tray create failed: duplicate tray id " & options.id)
+  let api = loadAppIndicator()
+  if api == nil:
+    raise newException(LinuxBackendError,
+        "native Linux tray create failed: libayatana-appindicator3 not available")
+
+  let tray = TrayRegistration(
+    id: options.id,
+    tooltip: options.tooltip,
+    iconPath: options.iconPath,
+    templateIconPath: options.templateIconPath,
+    menu: options.menu,
+    cb: cb,
+  )
+  try:
+    tray.indicator = api.newIndicator(options.id, options.iconPath,
+        options.templateIconPath)
+    if tray.indicator == nil:
+      raise newException(LinuxBackendError,
+          "native Linux tray create failed: app_indicator_new failed")
+    tray.menuWidget = tray.buildTrayMenu(options.menu)
+    api.setMenu(tray.indicator, tray.menuWidget)
+    api.setIcon(tray.indicator, options.iconPath, options.templateIconPath,
+        options.tooltip)
+    api.setTitle(tray.indicator, options.tooltip)
+    api.setStatus(tray.indicator, true)
+    state.trays.add tray
+  except CatchableError:
+    tray.releaseTrayResources()
+    raise
+
+proc trayUpdate(h: BackendHandle; id: string; options: TrayOptions) =
+  let state = h.toState
+  state.assertUiThread
+  state.requireOpen("native Linux tray update")
+  if id.len == 0:
+    raise newException(LinuxBackendError,
+        "native Linux tray update failed: empty tray id")
+  let tray = state.findTray(id)
+  if tray == nil:
+    raise newException(LinuxBackendError,
+        "native Linux tray update failed: unknown tray id " & id)
+  let api = loadAppIndicator()
+  if api == nil:
+    raise newException(LinuxBackendError,
+        "native Linux tray update failed: libayatana-appindicator3 not available")
+
+  let oldMenuWidget = tray.menuWidget
+  let oldCommands = tray.commands
+  let oldTooltip = tray.tooltip
+  let oldIconPath = tray.iconPath
+  let oldTemplateIconPath = tray.templateIconPath
+  let oldMenu = tray.menu
+  tray.menuWidget = nil
+  tray.commands = @[]
+  tray.tooltip = options.tooltip
+  tray.iconPath = options.iconPath
+  tray.templateIconPath = options.templateIconPath
+  tray.menu = options.menu
+  try:
+    tray.menuWidget = tray.buildTrayMenu(options.menu)
+    api.setMenu(tray.indicator, tray.menuWidget)
+    api.setIcon(tray.indicator, options.iconPath, options.templateIconPath,
+        options.tooltip)
+    api.setTitle(tray.indicator, options.tooltip)
+    if oldMenuWidget != nil:
+      releaseMenuWidget(oldMenuWidget)
+  except CatchableError:
+    if tray.menuWidget != nil:
+      releaseMenuWidget(tray.menuWidget)
+    tray.menuWidget = oldMenuWidget
+    tray.commands = oldCommands
+    tray.tooltip = oldTooltip
+    tray.iconPath = oldIconPath
+    tray.templateIconPath = oldTemplateIconPath
+    tray.menu = oldMenu
+    raise
+
+proc trayDestroy(h: BackendHandle; id: string) =
+  let state = h.toState
+  state.assertUiThread
+  state.requireOpen("native Linux tray destroy")
+  if id.len == 0:
+    raise newException(LinuxBackendError,
+        "native Linux tray destroy failed: empty tray id")
+  let tray = state.findTray(id)
+  if tray == nil:
+    raise newException(LinuxBackendError,
+        "native Linux tray destroy failed: unknown tray id " & id)
+  tray.releaseTrayResources()
+  state.removeTray(id)
+
 proc newBackend*(): Backend =
-  Backend(
+  var caps = {capScheme}
+  let trayAvailable = appIndicatorAvailable()
+  if trayAvailable:
+    caps.incl capTray
+  result = Backend(
     create: create,
     destroy: destroy,
     run: run,
@@ -912,6 +1167,10 @@ proc newBackend*(): Backend =
     bindFn: bindFn,
     unbind: unbind,
     resolve: resolve,
-    caps: {capScheme},
+    caps: caps,
     registerSchemeImpl: registerScheme,
   )
+  if trayAvailable:
+    result.trayCreateImpl = trayCreate
+    result.trayUpdateImpl = trayUpdate
+    result.trayDestroyImpl = trayDestroy

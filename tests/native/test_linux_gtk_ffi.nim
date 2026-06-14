@@ -61,10 +61,4 @@ else:
     gtkStatusIconPositionMenu(menu, addr width, addr height, addr pushIn,
       statusIcon)
     discard gTimeoutAdd(1, sourceCb, nil)
-    when declared(appIndicatorNew):
-      let indicator = appIndicatorNew("viewy", "viewy",
-        appIndicatorCategoryApplicationStatus)
-      appIndicatorSetMenu(indicator, menu)
-      appIndicatorSetStatus(indicator, appIndicatorStatusActive)
-
   echo "ok: linux gtk ffi declarations"

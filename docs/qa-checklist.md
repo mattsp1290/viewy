@@ -14,8 +14,12 @@ result in the release notes or PR description for that phase.
 Baseline:
 
 - OS/session: GNOME or KDE desktop session, not only Xvfb.
-- Packages: `gtk+-3.0`, `webkit2gtk-4.1 >= 2.40`, and `libayatana-appindicator3`
-  when tray behavior is under test.
+- Packages: `gtk+-3.0`, `webkit2gtk-4.1 >= 2.40`, and
+  `libayatana-appindicator3` at runtime when tray behavior is under test. The
+  AppIndicator development package must not be required to compile the backend.
+- Runtime capability: without AppIndicator installed, `newBackend().caps` omits
+  `capTray` and tray slots remain nil instead of crashing during backend
+  construction.
 - Tray host: KDE has a visible SNI/AppIndicator host by default; GNOME tray
   tests require an enabled StatusNotifier/AppIndicator extension or equivalent
   host.

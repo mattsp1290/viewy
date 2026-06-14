@@ -153,6 +153,10 @@ jobs:
         if: runner.os == 'Linux'
         run: nim c --hints:off --mm:orc --threads:on -r tests/native/test_linux_webkitgtk_ffi.nim
 
+      - name: Check native Linux AppIndicator soft dependency
+        if: runner.os == 'Linux'
+        run: nim c --hints:off --mm:orc --threads:on --path:src -r tests/native/test_linux_appindicator.nim
+
       - name: Check native macOS glue
         if: runner.os == 'macOS'
         run: nim c --hints:off --mm:orc --threads:on -r tests/native/test_darwin_glue.nim

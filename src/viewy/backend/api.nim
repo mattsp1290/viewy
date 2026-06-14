@@ -227,7 +227,7 @@ when selectedBackend == "native":
     const selectedBackendCaps*: set[Capability] = {capScheme, capMenu, capTray,
         capWindowEvents}
   elif defined(linux):
-    const selectedBackendCaps*: set[Capability] = {capScheme}
+    const selectedBackendCaps*: set[Capability] = {capScheme, capTray}
   elif defined(windows):
     const selectedBackendCaps*: set[Capability] = {capScheme, capMenu, capTray}
   else:

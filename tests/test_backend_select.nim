@@ -40,16 +40,18 @@ doAssert backend.dispatchTerminate != nil
 
   test "native selected caps are platform-specific":
     block:
-      let (output, exitCode) = nimCheck("""
+      let (output, exitCode) = nimCheck(
+          """
 import viewy/backend/api
 static:
-  doAssert selectedBackendCaps == {capScheme}
+  doAssert selectedBackendCaps == {capScheme, capTray}
 """, "--os:linux -d:viewyBackend=native")
       checkpoint output
       check exitCode == 0
 
     block:
-      let (output, exitCode) = nimCheck("""
+      let (output, exitCode) = nimCheck(
+          """
 import viewy/backend/api
 static:
   doAssert selectedBackendCaps == {capScheme, capMenu, capTray, capWindowEvents}
@@ -58,7 +60,8 @@ static:
       check exitCode == 0
 
     block:
-      let (output, exitCode) = nimCheck("""
+      let (output, exitCode) = nimCheck(
+          """
 import viewy/backend/api
 static:
   doAssert selectedBackendCaps == {capScheme, capMenu, capTray}
@@ -67,7 +70,8 @@ static:
       check exitCode == 0
 
     block:
-      let (output, exitCode) = nimCheck("""
+      let (output, exitCode) = nimCheck(
+          """
 import viewy/backend/api
 import viewy/backend/select
 let backend = newBackend()

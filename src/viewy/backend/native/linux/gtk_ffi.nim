@@ -3,8 +3,6 @@
 ## Keep this file to declarations only. The backend owns GTK object lifetime and
 ## thread handoff; this module only exposes the C ABI symbols it needs.
 
-{.passC: "-DVIEWY_APPINDICATOR_HEADER='\"libayatana-appindicator/app-indicator.h\"'".}
-
 when defined(linux) and not defined(nimcheck):
   import std/strutils
 
@@ -22,25 +20,8 @@ when defined(linux) and not defined(nimcheck):
   when not gtk3.ok:
     {.error: "install libgtk-3-dev and pkg-config for viewy native Linux backend".}
 
-  const appIndicator = block:
-    let ayatana = pkgConfig("ayatana-appindicator3-0.1")
-    if ayatana.ok:
-      ayatana
-    else:
-      pkgConfig("appindicator3-0.1")
-  const appIndicatorHeader = block:
-    let ayatana = pkgConfig("ayatana-appindicator3-0.1")
-    if ayatana.ok:
-      "libayatana-appindicator/app-indicator.h"
-    else:
-      "libappindicator/app-indicator.h"
-
   {.passC: gtk3.cflags.}
   {.passL: gtk3.libs.}
-  when appIndicator.ok:
-    {.passC: appIndicator.cflags & " -DVIEWY_HAS_APPINDICATOR=1" &
-        " -DVIEWY_APPINDICATOR_HEADER='\"" & appIndicatorHeader & "\"'".}
-    {.passL: appIndicator.libs.}
 
 type
   GConnectFlags* {.size: sizeof(cint).} = enum
@@ -103,9 +84,6 @@ type
     gtkAccelMask = 7
   GtkAccelKey* {.importc: "GtkAccelKey", header: "gtk/gtk.h",
       incompleteStruct.} = object
-  GtkApplicationIndicator* {.importc: "AppIndicator",
-      header: "VIEWY_APPINDICATOR_HEADER",
-      incompleteStruct.} = object
   GtkApplication* {.importc: "GtkApplication", header: "gtk/gtk.h",
       incompleteStruct.} = object
   GtkApplicationWindow* {.importc: "GtkApplicationWindow", header: "gtk/gtk.h",
@@ -143,16 +121,6 @@ type
   GtkWindowType* {.size: sizeof(cint).} = enum
     gtkWindowToplevel = 0
     gtkWindowPopup = 1
-  AppIndicatorCategory* {.size: sizeof(cint).} = enum
-    appIndicatorCategoryApplicationStatus = 0
-    appIndicatorCategoryCommunications = 1
-    appIndicatorCategorySystemServices = 2
-    appIndicatorCategoryHardware = 3
-    appIndicatorCategoryOther = 4
-  AppIndicatorStatus* {.size: sizeof(cint).} = enum
-    appIndicatorStatusPassive = 0
-    appIndicatorStatusActive = 1
-    appIndicatorStatusAttention = 2
   GtkDeleteEventCallback* = proc(widget: ptr GtkWidget; event: ptr GdkEvent;
       data: pointer): GBoolean {.cdecl, gcsafe.}
   GtkFocusEventCallback* = proc(widget: ptr GtkWidget; event: ptr GdkEvent;
@@ -172,6 +140,9 @@ const
 
 proc gObjectRef*(obj: pointer): pointer
   {.importc: "g_object_ref", header: "glib-object.h", cdecl.}
+
+proc gObjectRefSink*(obj: pointer): pointer
+  {.importc: "g_object_ref_sink", header: "glib-object.h", cdecl.}
 
 proc gObjectUnref*(obj: pointer)
   {.importc: "g_object_unref", header: "glib-object.h", cdecl.}
@@ -349,28 +320,3 @@ proc gtkWindowSetTitle*(window: ptr GtkWindow; title: cstring)
 
 proc gtkWindowGetSize*(window: ptr GtkWindow; width, height: ptr cint)
   {.importc: "gtk_window_get_size", header: "gtk/gtk.h", cdecl.}
-
-when defined(VIEWY_HAS_APPINDICATOR) or defined(nimcheck):
-  proc appIndicatorNew*(id, iconName: cstring;
-      category: AppIndicatorCategory): ptr GtkApplicationIndicator
-    {.importc: "app_indicator_new",
-        header: "VIEWY_APPINDICATOR_HEADER", cdecl.}
-
-  proc appIndicatorSetIconFull*(self: ptr GtkApplicationIndicator;
-      iconName, iconDesc: cstring)
-    {.importc: "app_indicator_set_icon_full",
-        header: "VIEWY_APPINDICATOR_HEADER", cdecl.}
-
-  proc appIndicatorSetMenu*(self: ptr GtkApplicationIndicator;
-      menu: ptr GtkMenu)
-    {.importc: "app_indicator_set_menu",
-        header: "VIEWY_APPINDICATOR_HEADER", cdecl.}
-
-  proc appIndicatorSetStatus*(self: ptr GtkApplicationIndicator;
-      status: AppIndicatorStatus)
-    {.importc: "app_indicator_set_status",
-        header: "VIEWY_APPINDICATOR_HEADER", cdecl.}
-
-  proc appIndicatorSetTitle*(self: ptr GtkApplicationIndicator; title: cstring)
-    {.importc: "app_indicator_set_title",
-        header: "VIEWY_APPINDICATOR_HEADER", cdecl.}

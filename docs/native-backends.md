@@ -25,7 +25,7 @@ on operating system names.
 | Backend selection | Platform | Capabilities |
 | --- | --- | --- |
 | `-d:viewyBackend=lite` | all supported platforms | none |
-| `-d:viewyBackend=native` | Linux | `capScheme` |
+| `-d:viewyBackend=native` | Linux | `capScheme`, `capTray` selected at compile time; runtime `caps` includes `capTray` only when AppIndicator loads |
 | `-d:viewyBackend=native` | macOS | `capScheme`, `capMenu`, `capTray`, `capWindowEvents` |
 | `-d:viewyBackend=native` | Windows | `capScheme`, `capMenu`, `capTray` |
 | `-d:viewyBackend=native` | unsupported platforms | none; backend construction fails at compile time |
@@ -136,12 +136,19 @@ The Linux native backend is a direct GTK/WebKitGTK implementation under
   loop.
 - `webkitgtk_ffi.nim` declares the WebKitGTK webview, user-script,
   JavaScript-evaluation, message-handler, and URI-scheme APIs.
+- `appindicator.nim` dlopens `libayatana-appindicator3` or legacy
+  `libappindicator3` at runtime for tray support. It does not add a compile- or
+  link-time dependency on AppIndicator headers or development packages.
 - `backend.nim` owns the GTK window, WebKit webview, JavaScript bindings,
-  typed handoff payloads, and `capScheme` registration.
+  typed handoff payloads, `capScheme` registration, and AppIndicator tray
+  registrations.
 
-Linux currently advertises `capScheme`. Tray and native menu work is tracked by
-separate beads and should not be inferred from the existence of the native
-window backend.
+Linux `selectedBackendCaps` includes `capTray` so Linux-native apps can compile
+tray calls. The runtime backend advertises `capTray` only when the AppIndicator
+shared library can be loaded. If it is absent, tray vtable slots remain nil and
+the backend capability check fails before tray creation. GNOME sessions still
+need a StatusNotifier/AppIndicator extension or equivalent tray host for the
+icon to be visible.
 
 ### macOS
 
@@ -266,7 +273,9 @@ objects must not cross those thread boundaries directly.
 Selected backend capability gates are also part of the contract. Current gates:
 
 - `-d:viewyBackend=lite` advertises no native capabilities.
-- `-d:viewyBackend=native` on Linux advertises `capScheme`.
+- `-d:viewyBackend=native` on Linux advertises `capScheme` and `capTray` at
+  compile time. Runtime `newBackend().caps` includes `capTray` only when
+  `libayatana-appindicator3` or legacy `libappindicator3` can be loaded.
 - `-d:viewyBackend=native` on macOS advertises `capScheme`, `capMenu`,
   `capTray`, and `capWindowEvents`.
 - `-d:viewyBackend=native` on Windows advertises `capScheme`, `capMenu`, and

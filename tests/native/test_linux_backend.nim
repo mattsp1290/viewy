@@ -26,12 +26,16 @@ else:
   doAssert nativeBackend.bindFn != nil
   doAssert nativeBackend.unbind != nil
   doAssert nativeBackend.resolve != nil
-  doAssert nativeBackend.caps == {capScheme}
   doAssert nativeBackend.registerSchemeImpl != nil
-  doAssert capTray notin nativeBackend.caps
-  doAssert nativeBackend.trayCreateImpl == nil
-  doAssert nativeBackend.trayUpdateImpl == nil
-  doAssert nativeBackend.trayDestroyImpl == nil
+  doAssert capScheme in nativeBackend.caps
+  if capTray in nativeBackend.caps:
+    doAssert nativeBackend.trayCreateImpl != nil
+    doAssert nativeBackend.trayUpdateImpl != nil
+    doAssert nativeBackend.trayDestroyImpl != nil
+  else:
+    doAssert nativeBackend.trayCreateImpl == nil
+    doAssert nativeBackend.trayUpdateImpl == nil
+    doAssert nativeBackend.trayDestroyImpl == nil
 
   when defined(nimcheck):
     let handle = cast[BackendHandle](0x7)
@@ -51,6 +55,22 @@ else:
       """{"error":{"message":"ValueError","type":"ValueError"}}""")
     nativeBackend.dispatch(handle, proc() {.gcsafe.} = discard)
     nativeBackend.dispatchTerminate(handle)
+    if capTray in nativeBackend.caps:
+      nativeBackend.trayCreateImpl(handle, TrayOptions(
+        id: "main",
+        tooltip: "Viewy",
+        iconPath: "viewy",
+        menu: @[MenuItem(id: "show", label: "Show", kind: miCommand,
+          enabled: true)],
+      ), proc(id: string) {.gcsafe.} = discard id)
+      nativeBackend.trayUpdateImpl(handle, "main", TrayOptions(
+        id: "main",
+        tooltip: "Viewy updated",
+        templateIconPath: "viewy-symbolic",
+        menu: @[MenuItem(id: "quit", label: "Quit", kind: miCommand,
+          enabled: true)],
+      ))
+      nativeBackend.trayDestroyImpl(handle, "main")
 
   proc terminateFromWorker(h: BackendHandle) {.thread.} =
     newBackend().dispatchTerminate(h)
