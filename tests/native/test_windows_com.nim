@@ -16,6 +16,8 @@ else:
   doAssert sizeof(CoreWebView2SettingsVtbl) == sizeof(pointer) * 21
   doAssert sizeof(CoreWebView2WebResourceRequestedEventArgsVtbl) ==
     sizeof(pointer) * 8
+  doAssert sizeof(CoreWebView2WebMessageReceivedEventArgsVtbl) ==
+    sizeof(pointer) * 6
   doAssert ord(wrcDocument) == 1
   doAssert ord(wrcFetch) == 8
 
@@ -49,6 +51,16 @@ else:
     discard args
     sOk
 
+  proc messageReceived(
+    self: ptr ICoreWebView2WebMessageReceivedEventHandler;
+    sender: ptr ICoreWebView2;
+    args: ptr ICoreWebView2WebMessageReceivedEventArgs
+  ): Hresult {.stdcall.} =
+    discard self
+    discard sender
+    discard args
+    sOk
+
   when defined(nimcheck):
     var
       envVtbl = CoreWebView2CreateEnvironmentCompletedHandlerVtbl(
@@ -63,8 +75,13 @@ else:
         invoke: resourceRequested)
       resourceHandler = ICoreWebView2WebResourceRequestedEventHandler(
         lpVtbl: addr resourceVtbl)
+      messageVtbl = CoreWebView2WebMessageReceivedEventHandlerVtbl(
+        invoke: messageReceived)
+      messageHandler = ICoreWebView2WebMessageReceivedEventHandler(
+        lpVtbl: addr messageVtbl)
       createEnvironment: CreateCoreWebView2EnvironmentWithOptionsProc
       token: EventRegistrationToken
+      messageToken: EventRegistrationToken
       webview: ptr ICoreWebView2
       environment: ptr ICoreWebView2Environment
       controller: ptr ICoreWebView2Controller
@@ -72,6 +89,7 @@ else:
       request: ptr ICoreWebView2WebResourceRequest
       response: ptr ICoreWebView2WebResourceResponse
       args: ptr ICoreWebView2WebResourceRequestedEventArgs
+      messageArgs: ptr ICoreWebView2WebMessageReceivedEventArgs
 
     if createEnvironment != nil:
       discard createEnvironment(nil, nil, nil, addr envHandler)
@@ -93,6 +111,9 @@ else:
         addr resourceHandler, addr token)
       discard webview.lpVtbl.addWebResourceRequestedFilter(webview, nil,
         wrcDocument)
+      discard webview.lpVtbl.addWebMessageReceived(webview,
+        addr messageHandler, addr messageToken)
+      discard webview.lpVtbl.removeWebMessageReceived(webview, messageToken)
     if settings != nil:
       discard settings.lpVtbl.putAreDevToolsEnabled(settings, winFalse)
       discard settings.lpVtbl.putIsWebMessageEnabled(settings, winTrue)
@@ -102,5 +123,9 @@ else:
     if request != nil:
       discard request.lpVtbl.getUri(request, nil)
       discard request.lpVtbl.getMethod(request, nil)
+    if messageArgs != nil:
+      discard messageArgs.lpVtbl.getSource(messageArgs, nil)
+      discard messageArgs.lpVtbl.getWebMessageAsJson(messageArgs, nil)
+      discard messageArgs.lpVtbl.tryGetWebMessageAsString(messageArgs, nil)
 
   echo "ok: windows webview2 com declarations"

@@ -22,6 +22,7 @@ Runs headlessly everywhere and does not create a backend window.
 - `test_runtime_js.nim`
 - `test_served_auth.nim`
 - `test_scheme_routing.nim`
+- `test_windows_ipc_bridge.nim`
 - `test_window_event_exports.nim`
 - `test_window_events.nim`
 - `tviewy.nim`
@@ -35,6 +36,7 @@ Compile-only platform FFI/glue checks. They skip or are CI-gated off-platform.
 - `native/test_linux_gtk_ffi.nim`
 - `native/test_linux_webkitgtk_ffi.nim`
 - `native/test_windows_com.nim`
+- `native/test_windows_ipc.nim`
 - `native/test_windows_webview2.nim`
 - `native/test_windows_webview2_env_spike.nim`
 - `native/test_windows_webview2_pin.nim`
