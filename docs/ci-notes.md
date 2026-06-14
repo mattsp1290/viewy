@@ -25,3 +25,8 @@ spike. This spike should remain red until either the hosted runner is fixed or a
 self-hosted Windows runner/WebView2 bootstrap step is added and documented here.
 
 Do not silently skip Windows window creation based on environment probing.
+
+GitHub-hosted Windows runners do not replace the clean Windows 11
+Evergreen-only VM release gate in [docs/qa-checklist.md](qa-checklist.md).
+That gate verifies the native scheme smoke and Tier 2 native windowed suite on a
+machine without developer SDK assumptions.

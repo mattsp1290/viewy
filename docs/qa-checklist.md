@@ -120,6 +120,41 @@ Baseline:
   runtime installed.
 - Build: test MinGW and MSVC when both are supported by the phase.
 
+Clean VM / Evergreen-only gate:
+
+- Use a fresh Windows 11 VM with no preinstalled Visual Studio, Windows SDK,
+  WebView2 SDK, or Viewy/Nim build cache assumptions. A compiler toolchain is
+  still required to build the tests, but WebView2 coverage must come from the
+  Evergreen Runtime plus the headers/libraries vendored or selected by this
+  repository.
+- Install only the runtime prerequisites needed to build and run this checkout:
+  Git, Nim, the compiler lane under test, Python for test timeouts, and the
+  Microsoft Edge WebView2 Evergreen Runtime.
+- Record the VM image/build, WebView2 runtime version, compiler lane, Nim
+  version, and Viewy commit SHA in the release notes or the bead that tracks
+  the gate.
+- Run the Windows native scheme conformance smoke:
+
+  ```cmd
+  if not exist build mkdir build
+  nim c --hints:off --mm:orc --threads:on -d:viewyBackend=native --path:src -o:build/test_windows_scheme tests/native/test_windows_scheme.nim
+  set VIEWY_NATIVE_WINDOWS_SCHEME=1
+  build\test_windows_scheme.exe
+  ```
+
+- Run the native Windows Tier 2 windowed suite without `VIEWY_SKIP_WINDOWED=1`:
+
+  ```cmd
+  for %t in (test_windowed test_async_rpc test_backend_handoff test_backend_teardown test_emit_stress) do (nim c --hints:off --mm:orc --threads:on -d:viewyBackend=native -o:build/%t_native_windows tests/%t.nim && python -c "import subprocess; subprocess.run([r'build\%t_native_windows.exe'], check=True, timeout=120)")
+  nim c --hints:off --mm:orc --threads:on -d:viewyBackend=native -o:build/window_smoke_native_windows tests/spike/window_smoke.nim
+  python -c "import subprocess; subprocess.run([r'build\window_smoke_native_windows.exe'], check=True, timeout=120)"
+  nim c --hints:off --mm:orc --threads:on -d:viewyBackend=native -d:release -d:viewyGeneratedAssets --path:tests/fixtures/assets_single -o:build/test_assets_single_native_windows tests/test_assets_single.nim
+  python -c "import subprocess; subprocess.run([r'build\test_assets_single_native_windows.exe'], check=True, timeout=120)"
+  ```
+
+- Treat any failure as release-blocking unless a follow-up bead documents the
+  failure, mitigation, and release exception.
+
 Menus and accelerators:
 
 - Native menu renders command, checkbox, radio, separator, submenu, and disabled
