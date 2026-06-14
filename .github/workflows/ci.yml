@@ -97,6 +97,10 @@ jobs:
       - name: Run dev-mode strdefine test
         run: nim c --hints:off --mm:orc --threads:on -d:viewyBackend=lite -d:viewyDev=http://127.0.0.1:5174 -r tests/test_app_dev.nim
 
+      - name: Check native Windows Win32 FFI
+        if: runner.os == 'Windows'
+        run: nim check --hints:off --mm:orc --threads:on -d:nimcheck --path:src tests/native/test_windows_win32.nim
+
       - name: Check native Linux GTK FFI
         if: runner.os == 'Linux'
         run: nim c --hints:off --mm:orc --threads:on -r tests/native/test_linux_gtk_ffi.nim
