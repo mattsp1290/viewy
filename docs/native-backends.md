@@ -184,6 +184,10 @@ ACCEL-table accelerators. Tray support uses `Shell_NotifyIconW` with Win32
 popup menus and updates icons through the same tray update slot used for
 light/dark icon swaps.
 
+The Windows FFI surface intentionally remains hand-written. The `winim`
+dependency decision and future acceptance threshold are recorded in
+[windows-winim-size-cost.md](windows-winim-size-cost.md).
+
 ## Conformance And Gates
 
 The test suite is organized in [tests/tiers.md](../tests/tiers.md).
