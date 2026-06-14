@@ -126,6 +126,40 @@ Platform URL details differ:
 The app and asset layers should treat those details as backend implementation
 choices. The public capability is still `capScheme`.
 
+## Dev Mode And HMR
+
+Decision tag: `viewy-p5u`, recorded on June 14, 2026.
+
+Dev mode must keep the frontend document on the Vite dev-server origin on every
+supported native platform: Linux, macOS, and Windows. In practice, the app
+startup path compiled with `-d:viewyDev=<url>` should continue to call
+`navigate(viewyDevUrl)` instead of registering `viewy://` scheme assets or
+mapping Windows dev pages through `https://viewy.localhost/`.
+
+This preserves Vite HMR without per-platform WebSocket rewriting:
+
+- Linux and macOS dev pages stay on `http://host:port/`, so Vite's client
+  derives the HMR WebSocket from the same origin it already controls.
+- Windows dev pages also stay on `http://host:port/`; using the production
+  virtual host for dev would make the browser page origin
+  `https://viewy.localhost/` while the HMR server remains on the Vite HTTP
+  origin, forcing extra `server.hmr` pinning and cross-origin behavior.
+- The production scheme pipeline remains the owner of `viewy://app/` and
+  `https://viewy.localhost/`. Dev mode is a live server workflow, not a scheme
+  asset workflow.
+
+Current CLI dev builds still force `-d:viewyBackend=lite`; that is the behavior
+`viewy-up0` should change for supported native platforms. The implementation
+should update `cli/src/viewy_cli/dev.nim` and its `cli/tests/test_dev.nim`
+coverage so dev apps compile with the default native backend while still
+passing `-d:viewyDev=<url>`. It should not add template-specific
+`server.hmr.{host,port,protocol}` settings unless a later test proves direct
+navigation is insufficient for a specific Vite/template combination.
+Unsupported platforms may keep using the explicit lite backend until a native
+backend exists. The implementation bead should extend the dev-loop test to
+verify file-touch to visible update-marker behavior under native where CI can
+run it.
+
 ## Platform Architecture
 
 ### Linux
