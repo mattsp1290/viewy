@@ -103,6 +103,7 @@ unsupported.onWindowEvent(proc(event: WindowEvent) {.gcsafe.} =
   discard event
 )
 
+destroyed = false
 var rejected = false
 try:
   unsupported.run()
@@ -110,5 +111,6 @@ except AssertionDefect:
   rejected = true
 
 doAssert rejected
+doAssert destroyed
 
 echo "ok: app window lifecycle events"
