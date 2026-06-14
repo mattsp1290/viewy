@@ -405,9 +405,16 @@ jobs:
           echo "hello release binary size: ${size} bytes"
           test "$size" -lt 3145728
 
+      - name: Build hello example
+        working-directory: examples/hello
+        shell: bash
+        run: |
+          python -c "import os; os.makedirs('build', exist_ok=True)"
+          nim c --hints:off -d:viewyBackend=lite --mm:orc --threads:on -o:build/hello src/main.nim
+
       - name: Build todo example
-        if: runner.os == 'Linux'
         working-directory: examples/todo
+        shell: bash
         run: |
           python -c "import os; os.makedirs('build', exist_ok=True)"
           nim c --hints:off -d:viewyBackend=lite --mm:orc --threads:on -o:build/todo src/main.nim
