@@ -97,6 +97,15 @@ jobs:
       - name: Run dev-mode strdefine test
         run: nim c --hints:off --mm:orc --threads:on -d:viewyBackend=lite -d:viewyDev=http://127.0.0.1:5174 -r tests/test_app_dev.nim
 
+      - name: Check WebView2 SDK ABI pin
+        run: nim c --hints:off --mm:orc --threads:on --path:src -r tests/native/test_windows_webview2_pin.nim
+
+      - name: Check Windows lite WebView2 builtin compile
+        if: runner.os == 'Windows'
+        run: |
+          python -c "import os; os.makedirs('build', exist_ok=True)"
+          nim c --hints:off --mm:orc --threads:on -d:viewyBackend=lite -o:build/window_smoke_webview2_pin tests/spike/window_smoke.nim
+
       - name: Check native Windows Win32 FFI
         if: runner.os == 'Windows'
         run: nim check --hints:off --mm:orc --threads:on -d:nimcheck --path:src tests/native/test_windows_win32.nim
