@@ -9,6 +9,7 @@ Runs headlessly everywhere and does not create a backend window.
 
 - `test_app.nim`
 - `test_app_dev.nim`
+- `test_accel.nim`
 - `test_assets.nim`
 - `test_assets_generated.nim`
 - `test_assets_served.nim`
