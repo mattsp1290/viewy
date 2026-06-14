@@ -123,10 +123,14 @@ suite "viewy build":
         let
           manifest = dir / "build" / "demo.manifest"
           rc = dir / "build" / "demo.rc"
+          manifestText = readFile(manifest)
         check fileExists(manifest)
         check fileExists(rc)
-        check readFile(manifest).contains("PerMonitorV2")
-        check readFile(manifest).contains("<dpiAware xmlns=\"http://schemas.microsoft.com/SMI/2005/WindowsSettings\">true/pm</dpiAware>")
+        check manifestText.startsWith("<?xml")
+        check manifestText.contains("<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersion=\"1.0\">")
+        check manifestText.contains("<application xmlns=\"urn:schemas-microsoft-com:asm.v3\">")
+        check manifestText.contains("<dpiAwareness xmlns=\"http://schemas.microsoft.com/SMI/2016/WindowsSettings\">PerMonitorV2</dpiAwareness>")
+        check manifestText.contains("<dpiAware xmlns=\"http://schemas.microsoft.com/SMI/2005/WindowsSettings\">true/pm</dpiAware>")
         when defined(vcc):
           check calls[1].command.startsWith("rc /nologo /fo ")
           check nimCompileCall(calls).command.contains("--passL:" &
