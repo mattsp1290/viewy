@@ -162,12 +162,34 @@ proc checkLinuxWebKit(probe: DoctorProbe): seq[CheckResult] =
       "native gtk+-3.0 + webkit2gtk-4.1, lite gtk+-3.0 + webkit2gtk-4.0, or lite gtk4 + webkitgtk-6.0 not found",
       "Install libgtk-3-dev with libwebkit2gtk-4.1-dev. GTK4/webkitgtk-6.0 is only for -d:viewyBackend=lite -d:viewyGtk4.")
 
+proc checkLinuxAppIndicator(probe: DoctorProbe): CheckResult =
+  let probeResult = probe.exec.run(
+    "sh -c \"ldconfig -p 2>/dev/null | grep -E 'libayatana-appindicator3|libappindicator3'\"")
+  if probeResult.exitCode == 0:
+    return ok("AppIndicator runtime", "found libayatana-appindicator3/libappindicator3")
+  ok("AppIndicator runtime",
+    "not found; native Linux tray support will be disabled until installed")
+
 proc checkMacosClt(probe: DoctorProbe): CheckResult =
   let probeResult = probe.exec.run("xcode-select -p")
   if probeResult.exitCode != 0:
     return fail("Xcode CLT", "Xcode command line tools not found",
       "Install with `xcode-select --install`.")
   ok("Xcode CLT", "found " & probeResult.output.firstNonEmptyLine())
+
+proc checkMacosClang(probe: DoctorProbe): CheckResult =
+  let probeResult = probe.exec.run("xcrun --find clang")
+  if probeResult.exitCode != 0:
+    return fail("clang", "clang not found through xcrun",
+      "Install Xcode command line tools with `xcode-select --install`.")
+  ok("clang", "found " & probeResult.output.firstNonEmptyLine())
+
+proc checkMacosCodesign(probe: DoctorProbe): CheckResult =
+  let probeResult = probe.exec.run("codesign --version")
+  if probeResult.exitCode != 0:
+    return fail("codesign", "codesign not found",
+      "Install Xcode command line tools with `xcode-select --install`.")
+  ok("codesign", "found " & probeResult.output.firstNonEmptyLine())
 
 proc checkWindowsWebView2(probe: DoctorProbe): CheckResult =
   const key = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
@@ -185,14 +207,16 @@ proc checkWindowsWebView2(probe: DoctorProbe): CheckResult =
 proc platformChecks(probe: DoctorProbe): seq[CheckResult] =
   case probe.target
   of dtLinux:
-    checkLinuxWebKit(probe)
+    result = checkLinuxWebKit(probe)
+    result.add checkLinuxAppIndicator(probe)
   of dtMacos:
-    @[checkMacosClt(probe)]
+    result = @[checkMacosClt(probe), checkMacosClang(probe),
+        checkMacosCodesign(probe)]
   of dtWindows:
-    @[checkWindowsWebView2(probe)]
+    result = @[checkWindowsWebView2(probe)]
   of dtOther:
-    @[fail("Platform", "unsupported platform",
-      "viewy supports Linux, macOS, and Windows.")]
+    result = @[fail("Platform", "unsupported platform",
+        "viewy supports Linux, macOS, and Windows.")]
 
 proc render(checks: openArray[CheckResult]): tuple[ok: bool; output: string] =
   result.ok = true

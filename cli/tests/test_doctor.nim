@@ -27,6 +27,8 @@ suite "viewy doctor":
     fake.outputs["pkg-config --version"] = ("1.9.5\n", 0)
     fake.outputs["pkg-config --exists gtk+-3.0 webkit2gtk-4.1"] = ("", 0)
     fake.outputs["pkg-config --atleast-version=2.40 webkit2gtk-4.1"] = ("", 0)
+    fake.outputs["sh -c \"ldconfig -p 2>/dev/null | grep -E 'libayatana-appindicator3|libappindicator3'\""] =
+      ("libayatana-appindicator3.so.1\n", 0)
 
     let result = runDoctor(probe(dtLinux, fake))
 
@@ -36,6 +38,8 @@ suite "viewy doctor":
     check result.output.contains("WebKitGTK native")
     check result.output.contains(">= 2.40")
     check result.output.contains("webkit2gtk-4.1")
+    check result.output.contains("OK   AppIndicator runtime")
+    check result.output.contains("found libayatana-appindicator3")
 
   test "older Linux webkit2gtk 4.1 is lite-only":
     let fake = baseline()
@@ -48,6 +52,7 @@ suite "viewy doctor":
     check result.ok
     check result.output.contains("OK   WebKitGTK lite")
     check result.output.contains("native Linux requires webkit2gtk-4.1 >= 2.40")
+    check result.output.contains("native Linux tray support will be disabled")
 
   test "GTK4 webkitgtk 6 is lite-only":
     let fake = baseline()
@@ -106,11 +111,25 @@ suite "viewy doctor":
   test "passes macOS Xcode command line tools check":
     let fake = baseline()
     fake.outputs["xcode-select -p"] = ("/Library/Developer/CommandLineTools\n", 0)
+    fake.outputs["xcrun --find clang"] = ("/usr/bin/clang\n", 0)
+    fake.outputs["codesign --version"] = ("1.0\n", 0)
 
     let result = runDoctor(probe(dtMacos, fake))
 
     check result.ok
     check result.output.contains("OK   Xcode CLT")
+    check result.output.contains("OK   clang")
+    check result.output.contains("OK   codesign")
+
+  test "fails when macOS clang is missing":
+    let fake = baseline()
+    fake.outputs["xcode-select -p"] = ("/Library/Developer/CommandLineTools\n", 0)
+    fake.outputs["codesign --version"] = ("1.0\n", 0)
+
+    let result = runDoctor(probe(dtMacos, fake))
+
+    check not result.ok
+    check result.output.contains("FAIL clang")
 
   test "passes Windows WebView2 runtime registry check":
     let fake = baseline()
