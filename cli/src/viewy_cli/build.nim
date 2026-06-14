@@ -97,6 +97,48 @@ proc plistValue(value: string): string =
   value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").
     replace("\"", "&quot;").replace("'", "&apos;")
 
+when defined(windows):
+  proc rcStringLiteral(value: string): string =
+    "\"" & value.replace("\\", "\\\\").replace("\"", "\\\"") & "\""
+
+proc emitWindowsResources(cfg: ViewyConfig; buildDir: string;
+    exec: ExecProc): string =
+  when defined(windows):
+    let
+      manifestPath = buildDir / (cfg.name & ".manifest")
+      rcPath = buildDir / (cfg.name & ".rc")
+      resourcePath =
+        when defined(vcc):
+          buildDir / (cfg.name & ".res")
+        else:
+          buildDir / (cfg.name & "_resources.o")
+
+    createDir(buildDir)
+    writeFile(manifestPath, """
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity version="1.0.0.0" processorArchitecture="*" name="app.viewy.$1" type="win32"/>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+    </windowsSettings>
+  </application>
+</assembly>
+""" % [cfg.name.plistValue])
+    writeFile(rcPath, "1 24 " & manifestPath.rcStringLiteral & "\n")
+    when defined(vcc):
+      exec.checked("rc /nologo /fo " & quote(resourcePath) & " " &
+        quote(rcPath), buildDir)
+    else:
+      exec.checked("windres -O coff -o " & quote(resourcePath) & " " &
+        quote(rcPath), buildDir)
+    result = resourcePath
+  else:
+    discard cfg
+    discard buildDir
+    result = ""
+
 proc emitMacBundle(cfg: ViewyConfig; binaryPath, buildDir: string;
     exec: ExecProc): string =
   when defined(macosx):
@@ -130,7 +172,6 @@ proc emitMacBundle(cfg: ViewyConfig; binaryPath, buildDir: string;
     discard cfg
     discard binaryPath
     discard buildDir
-    discard exec
     result = ""
 
 proc backendDefine(runtimeMode: runtimeAssets.AssetMode): string =
@@ -175,6 +216,7 @@ proc buildApp*(cfg: ViewyConfig; release = false; projectDir = ".";
     raise buildError("dev-server asset mode is not valid for production builds")
 
   createDir(buildDir)
+  let windowsResource = emitWindowsResources(cfg, buildDir, exec)
   var nimCmd = "nim c --mm:orc --threads:on " & backendDefine(runtimeMode) &
     " --path:" & quote(nimSrcDir)
   case runtimeMode
@@ -193,6 +235,8 @@ proc buildApp*(cfg: ViewyConfig; release = false; projectDir = ".";
     raise buildError("viewy library source not found; install the viewy package or set VIEWY_LIB_SRC")
   if release:
     nimCmd.add " -d:release -d:strip --opt:size"
+  if windowsResource.len > 0:
+    nimCmd.add " --passL:" & quote(windowsResource)
   nimCmd.add " -o:" & quote(binaryPath) & " " & quote(nimMain)
   exec.checked(nimCmd, root)
 
